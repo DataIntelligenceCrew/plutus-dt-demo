@@ -25,7 +25,7 @@ Implements the random, Ratiocoll, and EpsilonGreedy algorithms.
 Supports integer-valued CSV files only for the time being. 
 """
 class DT:
-    def __init__(self, sources, costs, features, stats=None, batch):
+    def __init__(self, sources, costs, features, stats=None, batch=1000):
         """
         params
             sources: a list of CSV filenames
@@ -46,7 +46,7 @@ class DT:
         self.num_subgroups = 1
         for feature in features:
             feature_range = feature[2] - feature[1] + 1
-            num_subgroups *= feature_range
+            self.num_subgroups *= feature_range
         # batch size
         self.batch = batch
         # D
@@ -62,12 +62,12 @@ class DT:
             self.stats = [np.zeros(self.num_subgroups, dtype=int)
                           for _ in range(self.num_sources)]
             self.priors = False
-            self.N = 0
+            self.N = np.zeros(self.num_sources, dtype=int)
         else:
             # In known setting, just use the provided stats vector
             self.stats = stats
             self.priors = True
-            self.stats_N = np.sum(self.stats)
+            self.stats_N = [ np.sum(self.stats[i]) for i in range(self.num_sources) ]
         # Initialze the subgroup matrix
         # This is a (2^d, d) matrix where each row represents a subgroup
         # and the columns represent features
@@ -85,13 +85,21 @@ class DT:
         self.subgroups = np.array(all_combinations)
         # Initialize the slice to subgroup ID dictionary
         self.subgroup_to_id_dict = dict()
-        for i, subgroup in all_combinations:
+        for i, subgroup in enumerate(all_combinations):
             self.subgroup_to_id_dict[subgroup] = i
-        # Collected set
-        self.collection = []
-        self.collection_stats = [np.zeros(self.num_subgroups, dtype=int)
-                                 for _ in range(self.num_sources)]
-        self collection_N = 0
+    
+    def __str__(self):
+        s =  "n: " + str(self.num_sources) + "\n"
+        s += "d: " + str(self.num_features) + "\n"
+        s += "subgroup count: " + str(self.num_subgroups) + "\n"
+        s += "batch: " + str(self.batch) + "\n"
+        s += "sources: " + str(self.sources) + "\n"
+        s += "costs: " + str(self.costs) + "\n"
+        s += "features: " + str(self.features) + "\n"
+        s += "stats: " + str(self.stats) + "\n"
+        s += "subgroups: " + str(self.subgroups) + "\n"
+        s += "dict: " + str(self.subgroup_to_id_dict)
+        return s
     
     def run(self, patterns, query_counts):
         """
@@ -111,9 +119,9 @@ class DT:
         pattern_to_subgroup = []
         for pattern in patterns:
             # Remove the X features in this pattern
-            x_indices = np.where(pattern < 0, pattern)[0] # X dimension indices
-            no_x_subgroups = np.delete(self.subgroups, negative_indices, axis=1)
-            no_x_pattern = np.delete(pattern, negative_indices)
+            x_indices = np.where(pattern < 0)[0] # X dimension indices
+            no_x_subgroups = np.delete(self.subgroups, x_indices, axis=1)
+            no_x_pattern = np.delete(pattern, x_indices)
             # Subtract pattern from subgroup
             diff = no_x_subgroups - no_x_pattern
             subgroup_incl = np.all(diff == 0, axis=1).astype(int)
@@ -122,14 +130,14 @@ class DT:
 
         # Known setting, use RatioColl
         if self.priors:
-            ds_index = self.ratiocoll(subgroup_incl, query_counts, batch)
+            ds_index = self.ratiocoll(query_counts, self.batch)
         else:
             pass
     
-    def ratiocoll(self, subgroup_incl, query_counts, batch, discard):
+    def ratiocoll(self, query_counts, batch):
         """
         params:
-            subgroup_incl: (m, d) ndarray denoting the features in each group
+            subgroup_incl: (m, 2^d) ndarray denoting the features in each group
             query_coutns: (1, m) ndarray denoting query counts for each group
             batch: int, batch size for reading sources
             discard: whether to keep or discard excess tuples
@@ -139,10 +147,10 @@ class DT:
         P = []
         # Each row of P_ij is computed by matmul subgroup_incl and subgroup_cnt
         for source_stat in self.stats:
-            prod = subgroup_incl @ source_stat.T
-            prod /= sum(prod)
+            prod = self.subgroup_incl @ source_stat.T / np.sum(source_stat)
             P.append(prod)
-        P = np.array(P) / self.stats_N
+        P = np.array(P)
+        print(P)
 
         # The actual collected set
         unified_set = np.array([])
@@ -150,18 +158,21 @@ class DT:
 
         # Precompute some matrices
         # (n, m) matrix, where P has been normalized by C
-        C_over_P = self.costs.T / P
+        C_over_P = np.reshape(self.costs.T, (self.num_sources,1)) / P
         # (1, m) matrix, where we find the minimum C/P for each group
         min_C_over_P = np.amin(C_over_P, axis=0)
 
         while np.any(remaining_query > 0):
             # Score for each group, (1, m)
             group_scores = remaining_query * min_C_over_P
+            print("group scores:", group_scores)
             # Priority group & source
-            priority_group = np.argmax(group_scores, axis=1)
+            priority_group = np.argmax(group_scores)
+            print("priority group:", priority_group)
             priority_source = np.argmin(C_over_P[:,priority_group], axis=0)
+            print("priority source:", priority_source)
             # Batch query chosen source
-            query_result = np.array(self.readers[i].next())
+            query_result = np.array(self.readers[priority_source].next())
             # Count the frequency of each subgroup in query result
             subgroup_cnts = np.zeros(self.num_subgroups, dtype=int)
             for result_row in query_result:
@@ -174,3 +185,34 @@ class DT:
             remaining_query = remaining_query - pattern_cnts
         
         return unified_set
+
+if __name__ == '__main__':
+    sources = [
+        'random_csv_0.csv',
+        'random_csv_1.csv',
+        'random_csv_2.csv',
+        'random_csv_3.csv',
+        'random_csv_4.csv'
+    ]
+    costs = np.array([1.0, 1.0, 1.0, 1.0, 1.0])
+    features = [("a", 0, 1), ("b", 0, 2), ("c", 0, 3)]
+    stats = [
+    [2634, 3970, 5882, 0, 873, 1308, 1966, 0, 3419, 5230, 7893, 0, 5283, 7805, 11878, 0, 1798, 2623, 4013, 0, 7001, 10351, 16073, 0],
+    [137, 2211, 147, 255, 739, 11082, 729, 1429, 901, 13247, 870, 1763, 315, 4438, 289, 587, 1412, 21901, 1461, 2873, 1769, 26300, 1694, 3451],
+    [3291, 2230, 964, 960, 3687, 2531, 1122, 1020, 456, 288, 125, 151, 15602, 11134, 4830, 4671, 18163, 12840, 5348, 5430, 2281, 1498, 696, 682],
+    [4545, 4545, 4497, 872, 1122, 1154, 1164, 241, 3398, 3304, 3356, 630, 11114, 11119, 11229, 2273, 2801, 2800, 2815, 549, 8154, 8193, 8428, 1697],
+    [1281, 604, 856, 366, 7569, 3705, 5316, 2323, 6347, 3032, 4267, 1868, 2102, 1062, 1499, 633, 12539, 6151, 8824, 3698, 10479, 5249, 7159, 3071]
+]
+    stats = np.array(stats)
+    
+    dt = DT(sources, costs, features, stats, batch=100)
+    print(dt)
+
+    patterns = [
+        [0, 0, -1],
+        [-1, 1, 2]
+    ]
+    patterns = np.array(patterns)
+    query_counts = np.array([500, 1000])
+
+    dt.run(patterns, query_counts)
