@@ -153,7 +153,7 @@ class DT:
         print(P)
 
         # The actual collected set
-        unified_set = np.array([])
+        unified_set = []
         remaining_query = np.copy(query_counts)
 
         # Precompute some matrices
@@ -162,7 +162,9 @@ class DT:
         # (1, m) matrix, where we find the minimum C/P for each group
         min_C_over_P = np.amin(C_over_P, axis=0)
 
+        query_times = 0
         while np.any(remaining_query > 0):
+            query_times += 1
             # Score for each group, (1, m)
             group_scores = remaining_query * min_C_over_P
             print("group scores:", group_scores)
@@ -173,18 +175,26 @@ class DT:
             print("priority source:", priority_source)
             # Batch query chosen source
             query_result = np.array(self.readers[priority_source].next())
+            #print(query_result)
             # Count the frequency of each subgroup in query result
             subgroup_cnts = np.zeros(self.num_subgroups, dtype=int)
-            for result_row in query_result:
-                subgroup = self.subgroup_to_id_dict[result_row]
-                subgroup_cnts[subgroup] += 1
-            # Count the frequency of each pattern in query result
-            pattern_cnts = self.subgroup_incl @ subgroup_cnts.T
-            # Bookkeeping
-            np.append(unified_set, query_result)
-            remaining_query = remaining_query - pattern_cnts
-        
-        return unified_set
+            subgroup_indices = np.empty(self.batch)
+            for b, result_row in enumerate(query_result):
+                subgroup = self.subgroup_to_id_dict[tuple(result_row)]
+                # Binary indicator of the patterns that this tuple satisfies
+                result_is_pattern = np.equal(self.subgroup_incl[:,subgroup], [1])
+                # Binary indicator of the patterns which still have remaining query
+                remaining_groups = np.greater(remaining_query, [0])
+                # All remaining groups for which this tuple satisfies
+                reduces_group_query = np.logical_and(result_is_pattern, remaining_groups).astype(int)
+                #print(result_row, subgroup, result_is_pattern, remaining_groups, reduces_group_query, remaining_query)
+                # Bookkeeping
+                if np.sum(reduces_group_query > 0):
+                    unified_set.append(result_row)
+                    remaining_query -= reduces_group_query
+        unified_set = np.array(unified_set)
+        print(unified_set, len(unified_set), query_times)
+        return np.array(unified_set)
 
 if __name__ == '__main__':
     sources = [
@@ -209,10 +219,10 @@ if __name__ == '__main__':
     print(dt)
 
     patterns = [
-        [0, 0, -1],
+        [0, 1, -1],
         [-1, 1, 2]
     ]
     patterns = np.array(patterns)
-    query_counts = np.array([500, 1000])
+    query_counts = np.array([2000, 1000])
 
     dt.run(patterns, query_counts)
