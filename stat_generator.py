@@ -10,5 +10,5 @@ sources = [
 
 for filename in sources:
     df = pd.read_csv(filename)
-    df1 = df.groupby(['a','b', 'c']).size().reset_index().rename(columns={0:'count'})
+    df1 = df.groupby(['a','b','c']).size().reset_index().rename(columns={0:'count'})
     print(df1)
