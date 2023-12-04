@@ -3,6 +3,7 @@ import csv
 import itertools
 import numpy as np
 import pandas as pd
+import math
 
 class CSVChunkReader:
 	def __init__(self, filename, chunksize=1000):
@@ -51,7 +52,7 @@ class DT:
 		self.m = len(slices)
 		# Stat tracker (initialize if not given)
 		if stats is None:
-			self.stats = np.zeros[(self.n, self.m)]
+			self.stats = np.zeros((self.n, self.m))
 			self.priors = False
 		else:
 			self.stats = stats
@@ -81,9 +82,41 @@ class DT:
 		"""
 		# Known setting, use RatioColl
 		if self.priors:
-				ds_index = self.ratiocoll(query_counts)
+				return self.ratiocoll(query_counts)
 		else:
-				pass
+				return self.exploreexploit(query_counts)
+	
+	def exploreexploit(self, query_counts):
+		Q = sum(query_counts)
+		unified_set = []
+		remaining_query = np.copy(query_counts)
+
+		explore_iters = max((int(math.pow(Q, 2/3)) / 100) + 1, self.n)
+		
+		i = 0
+		while np.any(remaining_query > 0):
+			if i < explore_iters:
+				priority_source = i % self.n
+			else:
+				P = np.maximum(self.stats / 4200, 0.1)
+				C_over_P = np.reshape(self.costs.T, (self.n, 1)) / P
+				min_C_over_P = np.amin(C_over_P, axis=0)
+				group_scores = remaining_query * min_C_over_P
+				priority_group = np.argmax(group_scores)
+				priority_source = np.argmin(C_over_P[:,priority_group], axis=0)
+			query_result = np.array(self.readers[priority_source].next())
+			# Count the frequency of each subgroup in query result
+			for b, result_row in enumerate(query_result):
+				slices = self.slice_ownership(result_row)
+				self.stats[priority_source][slices] += 1
+				if len(slices) > 0:
+					unified_set.append(result_row)
+				remaining_query[slices] -= 1
+				remaining_query = np.maximum(remaining_query, 0)
+			i += 1
+		unified_set = np.array(unified_set)
+		#print(unified_set, len(unified_set), i)
+		return unified_set
 		
 	def ratiocoll(self, query_counts):
 		"""
@@ -108,12 +141,12 @@ class DT:
 			query_times += 1
 			# Score for each group, (1, m)
 			group_scores = remaining_query * min_C_over_P
-			print("group scores:", group_scores)
+			#print("group scores:", group_scores)
 			# Priority group & source
 			priority_group = np.argmax(group_scores)
-			print("priority group:", priority_group)
+			#print("priority group:", priority_group)
 			priority_source = np.argmin(C_over_P[:,priority_group], axis=0)
-			print("priority source:", priority_source)
+			#print("priority source:", priority_source)
 			# Batch query chosen source
 			query_result = np.array(self.readers[priority_source].next())
 			# Count the frequency of each subgroup in query result
@@ -124,7 +157,7 @@ class DT:
 				remaining_query[slices] -= 1
 				remaining_query = np.maximum(remaining_query, 0)
 		unified_set = np.array(unified_set)
-		print(unified_set, len(unified_set), query_times)
+		#print(unified_set, len(unified_set), query_times)
 		return unified_set
 	
 	def slice_ownership(self, result_row):
@@ -217,10 +250,8 @@ if __name__ == '__main__':
 			[8965, 1154, 2800],
 			[31212, 3705, 6151],
 		]
-
-		stats = np.array(stats)
 		
-		dt = DT(sources, costs, slices, stats, batch=100)
+		dt = DT(sources, costs, slices, None, batch=100)
 		print(dt)
 		
 		query_counts = [
