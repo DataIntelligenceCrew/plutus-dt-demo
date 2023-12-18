@@ -48,7 +48,10 @@ class DT:
 		self.readers = [CSVChunkReader(filename, batch) for filename in sources]	
 		self.costs = np.array(costs) # costs
 		# Parsing slices
-		self.slices = parse_slices(slices)
+		if type(slices[0][0] == tuple):
+			self.slices = slices
+		else:
+			self.slices = parse_slices(slices)
 		self.m = len(slices)
 		# Stat tracker (initialize if not given)
 		if stats is None:
@@ -88,10 +91,11 @@ class DT:
 	
 	def exploreexploit(self, query_counts):
 		Q = sum(query_counts)
-		unified_set = []
+		unified_set = None
+		unified_ys = []
 		remaining_query = np.copy(query_counts)
 
-		explore_iters = max((int(math.pow(Q, 2/3)) / 100) + 1, self.n)
+		explore_iters = max(int(0.5 * Q / self.batch) + 1, self.n)
 		
 		i = 0
 		while np.any(remaining_query > 0):
@@ -104,17 +108,31 @@ class DT:
 				group_scores = remaining_query * min_C_over_P
 				priority_group = np.argmax(group_scores)
 				priority_source = np.argmin(C_over_P[:,priority_group], axis=0)
-			query_result = np.array(self.readers[priority_source].next())
+			query_result = pd.DataFrame(self.readers[priority_source].next())
+			# Split query result to x, y
+			result_x, result_y = split_xy(query_result)
+			result_y = list(result_y)
 			# Count the frequency of each subgroup in query result
-			for b, result_row in enumerate(query_result):
-				slices = self.slice_ownership(result_row)
+			for i in range(self.batch):
+				result_x_row = result_x.iloc[i,:].to_frame().T
+				#if i < 4:
+				#	print("xi", result_x_row, type(result_x_row))
+				result_y_row = result_y[i]
+				slices = self.slice_ownership(result_x_row)
+				#print(result_row, slices)
 				self.stats[priority_source][slices] += 1
 				if len(slices) > 0:
-					unified_set.append(result_row)
+					unified_set = result_x_row if unified_set is None else pd.concat([unified_set, result_x_row], ignore_index=True)
+					unified_ys.append(result_y_row)
 				remaining_query[slices] -= 1
 				remaining_query = np.maximum(remaining_query, 0)
+				if not np.any(remaining_query > 0):
+					break
 			i += 1
-		unified_set = np.array(unified_set)
+		#print("unified xs")
+		#print(unified_set)
+		#print("unified ys", unified_ys)
+		unified_set['median_house_value'] = unified_ys
 		#print(unified_set, len(unified_set), i)
 		return unified_set
 		
@@ -126,7 +144,8 @@ class DT:
 			discard: whether to keep or discard excess tuples
 		"""
 		# The actual collected set
-		unified_set = []
+		unified_xs_df = pd.DataFrame()
+		unified_ys = []
 		remaining_query = np.copy(query_counts)
 
 		# Precompute some matrices
@@ -152,10 +171,13 @@ class DT:
 			# Count the frequency of each subgroup in query result
 			for b, result_row in enumerate(query_result):
 				slices = self.slice_ownership(result_row)
+				print(b, result_row, slices)
 				if len(slices) > 0:
-					unified_set.append(result_row)
+					unified_xs_df.append(result_row)
 				remaining_query[slices] -= 1
 				remaining_query = np.maximum(remaining_query, 0)
+				if not np.any(remaining_query > 0):
+					break
 		unified_set = np.array(unified_set)
 		#print(unified_set, len(unified_set), query_times)
 		return unified_set
@@ -163,23 +185,30 @@ class DT:
 	def slice_ownership(self, result_row):
 		"""
 		returns a boolean list denoting the slices the other result_row belongs to
+		assumes result_row is a single-row DF
 		"""
 		ownership = []
 		for slice_ in self.slices:
-			ownership.append(belongs_to_slice(slice_, result_row))
+			ownership.append(belongs_to_slice(slice_, result_row.values.tolist()[0]))
 		return ownership
 
 def belongs_to_slice(slice_, result_row):
 	"""
 	returns whether result_row belongs to slice_
+	result_row is assumed to be a dataframe w/ feature titles
 	"""
-	for i in range(len(slice_)):
-		if result_row[i] < slice_[i][0]:
+	for i in range(len(result_row)):
+		xi = result_row[i]
+		if xi < slice_[i][0]:
 			return False
-		if result_row[i] > slice_[i][1]:
+		if xi > slice_[i][1]:
 			return False
 	return True
 
+def split_xy(df):
+	df_y = df['median_house_value']
+	df_x = df.drop('median_house_value', axis=1)
+	return df_x, df_y
 
 def parse_slices(slices):
 	"""

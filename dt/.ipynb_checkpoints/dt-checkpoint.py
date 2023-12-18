@@ -48,7 +48,10 @@ class DT:
 		self.readers = [CSVChunkReader(filename, batch) for filename in sources]	
 		self.costs = np.array(costs) # costs
 		# Parsing slices
-		self.slices = parse_slices(slices)
+		if type(slices[0][0] == tuple):
+			self.slices = slices
+		else:
+			self.slices = parse_slices(slices)
 		self.m = len(slices)
 		# Stat tracker (initialize if not given)
 		if stats is None:
@@ -91,31 +94,36 @@ class DT:
 		unified_set = []
 		remaining_query = np.copy(query_counts)
 
-		explore_iters = max((int(math.pow(Q, 2/3)) / 100) + 1, self.n)
+		explore_iters = max(int(0.5 * Q / self.batch) + 1, self.n)
 		
 		i = 0
 		while np.any(remaining_query > 0):
 			if i < explore_iters:
 				priority_source = i % self.n
 			else:
-				P = self.stats / 4200
+				P = np.maximum(self.stats / 4200, 0.1)
 				C_over_P = np.reshape(self.costs.T, (self.n, 1)) / P
 				min_C_over_P = np.amin(C_over_P, axis=0)
 				group_scores = remaining_query * min_C_over_P
 				priority_group = np.argmax(group_scores)
 				priority_source = np.argmin(C_over_P[:,priority_group], axis=0)
 			query_result = np.array(self.readers[priority_source].next())
+			# Split query result to x, y
+            result_x, result_y = split_xy(query_result)
 			# Count the frequency of each subgroup in query result
-			for b, result_row in enumerate(query_result):
+			for _, result_row in enumerate(query_result):
 				slices = self.slice_ownership(result_row)
+				#print(result_row, slices)
 				self.stats[priority_source][slices] += 1
 				if len(slices) > 0:
 					unified_set.append(result_row)
 				remaining_query[slices] -= 1
 				remaining_query = np.maximum(remaining_query, 0)
+				if not np.any(remaining_query > 0):
+					break
 			i += 1
 		unified_set = np.array(unified_set)
-		print(unified_set, len(unified_set), i)
+		#print(unified_set, len(unified_set), i)
 		return unified_set
 		
 	def ratiocoll(self, query_counts):
@@ -141,23 +149,26 @@ class DT:
 			query_times += 1
 			# Score for each group, (1, m)
 			group_scores = remaining_query * min_C_over_P
-			print("group scores:", group_scores)
+			#print("group scores:", group_scores)
 			# Priority group & source
 			priority_group = np.argmax(group_scores)
-			print("priority group:", priority_group)
+			#print("priority group:", priority_group)
 			priority_source = np.argmin(C_over_P[:,priority_group], axis=0)
-			print("priority source:", priority_source)
+			#print("priority source:", priority_source)
 			# Batch query chosen source
 			query_result = np.array(self.readers[priority_source].next())
 			# Count the frequency of each subgroup in query result
 			for b, result_row in enumerate(query_result):
 				slices = self.slice_ownership(result_row)
+				print(b, result_row, slices)
 				if len(slices) > 0:
 					unified_set.append(result_row)
 				remaining_query[slices] -= 1
 				remaining_query = np.maximum(remaining_query, 0)
+				if not np.any(remaining_query > 0):
+					break
 		unified_set = np.array(unified_set)
-		print(unified_set, len(unified_set), query_times)
+		#print(unified_set, len(unified_set), query_times)
 		return unified_set
 	
 	def slice_ownership(self, result_row):
@@ -172,14 +183,20 @@ class DT:
 def belongs_to_slice(slice_, result_row):
 	"""
 	returns whether result_row belongs to slice_
+	result_row is assumed to be a dataframe w/ feature titles
 	"""
-	for i in range(len(slice_)):
-		if result_row[i] < slice_[i][0]:
+	for i in range(len(result_row)):
+		xi = result_row[i]
+		if xi < slice_[i][0]:
 			return False
-		if result_row[i] > slice_[i][1]:
+		if xi > slice_[i][1]:
 			return False
 	return True
 
+def split_xy(df):
+	df_y = df['median_house_value']
+	df_x = df.drop('median_house_value', axis=1)
+	return train_x, train_y
 
 def parse_slices(slices):
 	"""
