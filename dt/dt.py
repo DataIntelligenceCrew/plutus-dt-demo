@@ -4,6 +4,8 @@ import itertools
 import numpy as np
 import pandas as pd
 import math
+import psycopg2
+from sklearn.preprocessing import LabelEncoder
 
 class CSVChunkReader:
 	def __init__(self, filename, chunksize=1000):
@@ -18,6 +20,36 @@ class CSVChunkReader:
 		except StopIteration:
 			self.reader = None
 			return None
+
+class DBSource:
+		def __init__(self, host, database, user, password, query, y_name):
+				self.host = host
+				self.database = database
+				self.user = user
+				self.password = password
+				self.query = query
+				self.y_name = y_name
+
+		# Runs the query and returns result as DF
+		def get_query_result(self):
+				conn = conn = psycopg2.connect(
+						host = self.host, 
+						database = self.database, 
+						user = self.user, 
+						password = self.password
+				)
+				cur = conn.cursor()
+				cur.execute(self.query)
+				rows = cur.fetchall()
+				col_names = [desc[0] for desc in cur.description]
+				df = pd.DataFrame(rows, columns=col_names)
+				cur.close()
+				conn.close()
+				return df
+
+		def __str__(self):
+				s = str(self.host) + ' ' + self.database + ' ' + self.user + ' ' + self.query + ' ' + self.y_name
+				return s
 
 """
 Represents a single instance of the DT problem. 
@@ -43,9 +75,11 @@ class DT:
 			batch: number of rows to be read in at once
 		"""
 		self.n = len(sources) # number of sources
-		#self.d = len(features) # number of featurs
-		self.sources = sources # data sources & file readers
-		self.readers = [CSVChunkReader(filename, batch) for filename in sources]	
+		if type(sources[0]) == str: # Source is defined as CSV filename
+			self.sources = sources # data sources & file readers
+			self.readers = [CSVChunkReader(filename, batch) for filename in sources]
+		else: # Source is defined as DBSource
+			self.sources = sources
 		self.costs = np.array(costs) # costs
 		# Parsing slices
 		if type(slices[0][0] == tuple):
@@ -108,12 +142,16 @@ class DT:
 				group_scores = remaining_query * min_C_over_P
 				priority_group = np.argmax(group_scores)
 				priority_source = np.argmin(C_over_P[:,priority_group], axis=0)
-			query_result = pd.DataFrame(self.readers[priority_source].next())
+			if type(self.sources[0]) == str: # Sources are CSV files
+				query_result = np.array(self.readers[priority_source].next())
+			else: # Sources are DB queries
+				query_result = self.sources[priority_source].get_query_result()
 			# Split query result to x, y
-			result_x, result_y = split_xy(query_result)
+			result_x, result_y = split_xy(query_result, self.sources[priority_source].y_name)
+			result_x = result_x
 			result_y = list(result_y)
 			# Count the frequency of each subgroup in query result
-			for i in range(self.batch):
+			for i in range(len(result_x)):
 				result_x_row = result_x.iloc[i,:].to_frame().T
 				#if i < 4:
 				#	print("xi", result_x_row, type(result_x_row))
@@ -129,11 +167,7 @@ class DT:
 				if not np.any(remaining_query > 0):
 					break
 			i += 1
-		#print("unified xs")
-		#print(unified_set)
-		#print("unified ys", unified_ys)
 		unified_set['median_house_value'] = unified_ys
-		#print(unified_set, len(unified_set), i)
 		return unified_set
 		
 	def ratiocoll(self, query_counts):
@@ -167,7 +201,10 @@ class DT:
 			priority_source = np.argmin(C_over_P[:,priority_group], axis=0)
 			#print("priority source:", priority_source)
 			# Batch query chosen source
-			query_result = np.array(self.readers[priority_source].next())
+			if type(self.sources[0]) == str: # Sources are CSV files
+				query_result = np.array(self.readers[priority_source].next())
+			else: # Sources are DB queries
+				query_result = np.array(self.sources[priority_source].get_query_result())
 			# Count the frequency of each subgroup in query result
 			for b, result_row in enumerate(query_result):
 				slices = self.slice_ownership(result_row)
@@ -205,17 +242,40 @@ def belongs_to_slice(slice_, result_row):
 			return False
 	return True
 
-def split_xy(df):
-	df_y = df['median_house_value']
-	df_x = df.drop('median_house_value', axis=1)
+def split_xy(df, y_name):
+	df_y = df[y_name]
+	df_x = df.drop(y_name, axis=1)
 	return df_x, df_y
+
+def int_encode(df, cols):
+    label_encoder = LabelEncoder()
+    for col in cols:
+        if col in df.columns:
+            df[col] = label_encoder.fit_transform(df[col])
+    return df
+
+def process_df(df):
+	df = pd.get_dummies(df,columns=onehot_cols)
+	df = int_encode(df, int_cols)
+	return df
+
+# These columns will be one-hot encoded
+onehot_cols = [
+]
+# These columns will be encoded as integers
+int_cols = [
+    'carrier_mkt',
+    'carrier_op',
+    'origin_state_abr',
+    'dest_state'
+]
 
 def parse_slices(slices):
 	"""
 	Parse a slice formatted using string into a slice formatted using tuple. 
 	params:
-	  slices: a list of slices, where each slice is a list of strings formatted
-		        as '(min, max)' for each feature. min, max should be parseable as
+		slices: a list of slices, where each slice is a list of strings formatted
+						as '(min, max)' for each feature. min, max should be parseable as
 						float. 
 	returns:
 		slices reformatted using tuples of floats instead
