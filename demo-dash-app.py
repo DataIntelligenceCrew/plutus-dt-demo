@@ -107,6 +107,12 @@ app.layout = html.Div([
         children = [
           html.H2('Sliceline: Fast Liear-Algebra Based Slice Finding'),
           html.Div(
+            id = 'vis-sliceline-info',
+            children = [
+              html.P('TODO: Information of the objective function'),
+            ]
+          ),
+          html.Div(
             id = 'vis-sliceline-params',
             children = [
               html.H3('Set Sliceline parameters'),
@@ -203,6 +209,45 @@ app.layout = html.Div([
         },
         children = [
           html.H2('Data Distribution Tailoring: Cost-Efficient Data Acquisition'),
+          html.Div(
+            id = 'vis-dt-algos',
+            children = [
+              html.H3('Choose Algorithms'),
+              dcc.Checklist(
+                id = "vis-dt-algos-radio",
+                options = [
+                  {
+                    "label": html.Span(
+                      children = [
+                        'Random\n',
+                        html.Small('Baseline that queries random source')
+                      ]
+                    ),
+                    "value": 'random'
+                  },
+                  {
+                    "label": html.Span(
+                      children = [
+                        'RatioColl\n',
+                        html.Small('Requires prior probabilities')
+                      ]
+                    ),
+                    "value": 'ratiocoll'
+                  },
+                  {
+                    "label": html.Span(
+                      children = [
+                        'ExploreExploit\n',
+                        html.Small('No prior probabilities')
+                      ]
+                    ),
+                    "value": 'exploreexploit'
+                  }
+                ],
+                value = ['random', 'ratiocoll', 'exploreexploit']
+              )
+            ]
+          ),
           html.H3('Run DT'),
           html.H3('DT Results')
         ]
@@ -213,6 +258,7 @@ app.layout = html.Div([
 
 # Callbacks
 
+# Update summary/description of dataset based on choice menu
 @callback(
   Output('vis-model-dataset-description', 'children'),
   Input('vis-model-datachoice-radio', 'value'))
