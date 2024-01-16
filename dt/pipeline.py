@@ -1,8 +1,8 @@
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-from typing import Tuple
-from dt import *
+from typing import Tuple, List
+from .dbsource import *
 
 """
 Defines and exposes the API functions to client programs. 
@@ -65,7 +65,7 @@ def pipeline_sliceline_py(
     return slices, sliceline_stats
 
 def pipeline_dt_py(
-    sources: List[dt.DBSource],
+    sources: List[DBSource],
     groups: pd.DataFrame,
     costs: npt.NDArray,
     query_counts: npt.NDArray,
@@ -158,7 +158,7 @@ def pipeline_sliceline_dml(
     return slices, sliceline_stats
 
 def pipeline_dt_dml(
-    sources: List[dt.DBSource],
+    sources: List[DBSource],
     groups: pd.DataFrame,
     costs: npt.NDArray,
     query_counts: npt.NDArray,
