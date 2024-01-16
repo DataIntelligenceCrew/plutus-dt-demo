@@ -4,40 +4,6 @@ import pandas as pd
 
 app = Dash(__name__)
 
-# Global constants
-
-dataset_descriptions = {
-  "flights": """
-* Dataset: US Bureau of Transportation Statistics [On-Time Performance](https://www.transtats.bts.gov/Fields.asp?gnoyr_VQ=FGK)\n
-* n = 40mil\n
-* Data sources: Split by marketing airline
-
-**X variables**
-
-| **Variable** | **Type** | **Description** |
-|---|---|---|
-| year | int | 2018 - 2023 |
-| month | int | Month |
-| day | int | Day of month |
-| weekday | int | Day of week |
-| scheduled departure time | int | 00:00 to 23:59 |
-| marketing carrier | categorical | Airline that sold the tickets (9 total) |
-| operating carrier | categorical | Airline that operated the airpline (21 total) |
-| origin & destination location | float | longitude & latitude of origin & destination |
-| origin & destination state | categorical | State of origin & destination (51 total) |
-| distance | int | Travel distance (in miles) |
-
-**y variable**
-
-| **Variable**        | **Type**    | **Values**                  |
-|---------------------|-------------|-----------------------------|
-| arrival performance | categorical | on-time, delayed, or cancelled |
-""",
-  "census": """
-TODO: write a description for the census data
-"""
-}
-
 # Main app layout
 
 app.layout = html.Div([
