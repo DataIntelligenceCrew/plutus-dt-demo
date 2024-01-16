@@ -1,41 +1,13 @@
 import re
 import csv
 import itertools
-import numpy as np
-import pandas as pd
 import math
-import psycopg2
+import numpy as np
+import numpy.typing as npt
+import pandas as pd
 from sklearn.preprocessing import LabelEncoder
-
-class DBSource:
-        def __init__(self, host, database, user, password, query, y_name):
-                self.host = host
-                self.database = database
-                self.user = user
-                self.password = password
-                self.query = query
-                self.y_name = y_name
-
-        # Runs the query and returns result as DF
-        def get_query_result(self):
-                conn = conn = psycopg2.connect(
-                        host = self.host, 
-                        database = self.database, 
-                        user = self.user, 
-                        password = self.password
-                )
-                cur = conn.cursor()
-                cur.execute(self.query)
-                rows = cur.fetchall()
-                col_names = [desc[0] for desc in cur.description]
-                df = pd.DataFrame(rows, columns=col_names)
-                cur.close()
-                conn.close()
-                return df
-
-        def __str__(self):
-                s = str(self.host) + ' ' + self.database + ' ' + self.user + ' ' + self.query + ' ' + self.y_name
-                return s
+from .dbsource import DBSource
+from typing import List
 
 """
 Represents a single instance of the DT problem. 
@@ -44,7 +16,11 @@ Implements the random, Ratiocoll, and EpsilonGreedy algorithms.
 Supports integer-valued CSV files only for the time being. 
 """
 class DT:
-    def __init__(self, sources=None, costs=None, slices=None, stats=None, batch=1000):
+    def __init__(self,
+        sources: List[DBSource]=None, 
+        costs: npt.NDArray=None, 
+        slices=None, 
+        stats=None):
         """
         params
             sources: a list of CSV filenames
@@ -94,20 +70,20 @@ class DT:
     def run(self, query_counts):
         """
         params
-                patterns: ndarray with shape (m, d) where each row is a group of
-                        interest, totalling m groups, and each column is the value that
-                        the group should take in the d^th dimension, with dimensions
-                        ordered in the same order as self.features
-                        dimensions that do not matter should have a negative value
-                        i.e. pattern 1X0 is encoded as row [1, -1, 0]
-                query_counts: vector with length m denoting query count for each
-                        group requested
+            patterns: ndarray with shape (m, d) where each row is a group of
+                    interest, totalling m groups, and each column is the value that
+                    the group should take in the d^th dimension, with dimensions
+                    ordered in the same order as self.features
+                    dimensions that do not matter should have a negative value
+                    i.e. pattern 1X0 is encoded as row [1, -1, 0]
+            query_counts: vector with length m denoting query count for each
+                    group requested
         """
         # Known setting, use RatioColl
         if self.priors:
-                return self.ratiocoll(query_counts)
+            return self.ratiocoll(query_counts)
         else:
-                return self.exploreexploit(query_counts)
+            return self.exploreexploit(query_counts)
     
     def exploreexploit(self, query_counts):
         Q = sum(query_counts)
@@ -245,9 +221,7 @@ def process_df(df):
     df = int_encode(df, int_cols)
     return df
 
-# These columns will be one-hot encoded
-onehot_cols = [
-]
+# TEMPORARY, will be removed soon
 # These columns will be encoded as integers
 int_cols = [
     'carrier_mkt',
@@ -276,3 +250,5 @@ def parse_slices(slices):
             reformatted_slice.append(feature)
         reformatted_slices.append(reformatted_slice)
     return reformatted_slices
+
+onehot_cols = ['carrier_mkt', 'carrier_op', 'origin_state', 'dest_state']
