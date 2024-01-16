@@ -56,7 +56,6 @@ class DT:
         else:
             self.stats = stats
             self.priors = True
-        self.batch = batch # batch size
 
     def __str__(self):
         s =  "n: " + str(self.n) + "\n"
@@ -224,10 +223,6 @@ def process_df(df):
 # TEMPORARY, will be removed soon
 # These columns will be encoded as integers
 int_cols = [
-    'carrier_mkt',
-    'carrier_op',
-    'origin_state_abr',
-    'dest_state'
 ]
 
 def parse_slices(slices):
@@ -251,4 +246,4 @@ def parse_slices(slices):
         reformatted_slices.append(reformatted_slice)
     return reformatted_slices
 
-onehot_cols = ['carrier_mkt', 'carrier_op', 'origin_state', 'dest_state']
+onehot_cols = []
