@@ -17,96 +17,86 @@ Supports integer-valued CSV files only for the time being.
 """
 class DT:
     def __init__(self,
-        sources: List[DBSource]=None, 
-        costs: npt.NDArray=None, 
-        slices=None, 
-        stats=None):
+        slices: npt.NDArray,
+        costs: npt.NDArray
+        task: str):
         """
         params
-            sources: a list of CSV filenames
-            costs: a list of floating point cost for each source
-            slices: a list of slices, where each slice is a list of strings formatted
-                            as '[min, max]' (inclusive) or '(min, max)' (exclusive). 
-                            inclusive and exclusive brackets can be combined. 
-                            min, max should be parseable as float
-                            the elements in the slices should correspond to the features
-                            in the features argument, in the same order
-            stats: an optional list of numpy vectors that count the number of
-                            each slice, in the order given in the slices argument
-                            format is stats[source][slice]
-            batch: number of rows to be read in at once
+            sources: A list of CSV filenames
+            costs: A list of floating point cost for each source
+            slices: A list of slices encoded as numpy matrix
+            task: Valid task key string. 
         """
-        self.n = len(sources) # number of sources
-        if type(sources[0]) == str: # Source is defined as CSV filename
-            self.sources = sources # data sources & file readers
-            self.readers = [CSVChunkReader(filename, batch) for filename in sources]
-        else: # Source is defined as DBSource
-            self.sources = sources
+        self.n = len(sources) # Number of sources
         self.costs = np.array(costs) # costs
-        # Parsing slices
-        if type(slices[0][0] == tuple):
-            self.slices = slices
-        else:
-            self.slices = parse_slices(slices)
-        self.m = len(slices)
-        # Stat tracker (initialize if not given)
-        if stats is None:
-            self.stats = np.zeros((self.n, self.m))
-            self.priors = False
-        else:
-            self.stats = stats
-            self.priors = True
+        self.slices = slices # Slices
+        self.m = len(slices) # Number of slices
+        self.task = task
 
-    def __str__(self):
-        s =  "n: " + str(self.n) + "\n"
-        s += "sources: " + str(self.sources) + "\n"
+    def __repr__(self):
+        s = "n: " + str(self.n) + ", m: " + str(self.m) + "\n"
         s += "costs: " + str(self.costs) + "\n"
         s += "slices: " + str(self.slices) + "\n"
-        s += "stats: " + str(self.stats) + "\n"
-        s += "batch: " + str(self.batch) + "\n"
         return s
         
-    def run(self, query_counts):
+    def run(self, algorithm: str, query_counts: npt.NDArray) -> Tuple[List[pd.DataFrame], dict]:
         """
-        params
-            patterns: ndarray with shape (m, d) where each row is a group of
-                    interest, totalling m groups, and each column is the value that
-                    the group should take in the d^th dimension, with dimensions
-                    ordered in the same order as self.features
-                    dimensions that do not matter should have a negative value
-                    i.e. pattern 1X0 is encoded as row [1, -1, 0]
-            query_counts: vector with length m denoting query count for each
-                    group requested
+        params:
+            algorithm: either 'ratiocoll', 'exploreexploit', or 'random' for now
+            query_counts: m-length vector denoting minimum query counts
+        returns: 
+            1. Additional data acquired for each slice, in same order. Encoded
+                in raw format.
+            2. DT stats dictionary. 
         """
-        # Known setting, use RatioColl
-        if self.priors:
-            return self.ratiocoll(query_counts)
-        else:
-            return self.exploreexploit(query_counts)
-    
-    def exploreexploit(self, query_counts):
-        Q = sum(query_counts)
-        unified_set = None
-        unified_ys = []
+        additional_data = [None] * self.m
         remaining_query = np.copy(query_counts)
+        # Initialize stat tracker
+        match algorithm:
+            case "ratiocoll":
+                stat_tracker = 
+            case "exploreexploit":
+                stat_tracker = np.zeros((self.n, self.m), dtype=int)
+            case "random":
+                pass
 
-        explore_iters = max(int(0.5 * Q / self.batch) + 1, self.n)
-        
+        match algorithm:
+            case "ratiocoll":
+                return self.ratiocoll(query_counts)
+            case "exploreexploit":
+                return self.explore_exploit(query_counts)
+            case "random":
+                return self.random_baseline(query_counts)
+    
+    def explore_exploit(self, query_counts: npt.NDArray) -> Tuple[List[pd.DataFrame], dict]:
+        Q = sum(query_counts) # Total query requirement
+        additional_data = [None] * self.m # Separate collected dataset per slice
+        remaining_query = np.copy(query_counts)
+        stat_tracker = np.zeros((self.n, self.m), dtype=int)
+
+        # Compute the number of exploration iterations
+        explore_iters = math.ceil((0.5 * math.pow(Q, 2/3)) / self.batch)
+        # Round up explore_iters to ensure uniform exploration
+        explore_iters = math.ceil(explore_iters / self.n) * self.n
+
         i = 0
         while np.any(remaining_query > 0):
-            if i < explore_iters:
+            # Choose the priority source
+            if i < explore_iters: # Explore sources uniformly
                 priority_source = i % self.n
             else:
-                P = np.maximum(self.stats / 4200, 0.1)
+                # Ensure that probs aren't zero to prevent numerical issues
+                P = np.maximum(stat_tracker / np.sum(stat_tracker, axis=1), 
+                    const.EPSILON_PROB)
                 C_over_P = np.reshape(self.costs.T, (self.n, 1)) / P
                 min_C_over_P = np.amin(C_over_P, axis=0)
                 group_scores = remaining_query * min_C_over_P
                 priority_group = np.argmax(group_scores)
                 priority_source = np.argmin(C_over_P[:,priority_group], axis=0)
-            if type(self.sources[0]) == str: # Sources are CSV files
-                query_result = np.array(self.readers[priority_source].next())
-            else: # Sources are DB queries
-                query_result = self.sources[priority_source].get_query_result()
+            # Get query result
+            query_result = self.sources[priority_source].get_query_result()
+
+
             # Split query result to x, y
             result_x, result_y = split_xy(query_result, self.sources[priority_source].y_name)
             result_x = result_x
@@ -189,61 +179,3 @@ class DT:
         for slice_ in self.slices:
             ownership.append(belongs_to_slice(slice_, result_row.values.tolist()[0]))
         return ownership
-
-def belongs_to_slice(slice_, result_row):
-    """
-    returns whether result_row belongs to slice_
-    result_row is assumed to be a dataframe w/ feature titles
-    """
-    for i in range(len(result_row)):
-        xi = result_row[i]
-        if xi < slice_[i][0]:
-            return False
-        if xi > slice_[i][1]:
-            return False
-    return True
-
-def split_xy(df, y_name):
-    df_y = df[y_name]
-    df_x = df.drop(y_name, axis=1)
-    return df_x, df_y
-
-def int_encode(df, cols):
-    label_encoder = LabelEncoder()
-    for col in cols:
-        if col in df.columns:
-            df[col] = label_encoder.fit_transform(df[col])
-    return df
-
-def process_df(df):
-    df = pd.get_dummies(df,columns=onehot_cols)
-    df = int_encode(df, int_cols)
-    return df
-
-# TEMPORARY, will be removed soon
-# These columns will be encoded as integers
-int_cols = [
-]
-
-def parse_slices(slices):
-    """
-    Parse a slice formatted using string into a slice formatted using tuple. 
-    params:
-        slices: a list of slices, where each slice is a list of strings formatted
-                        as '(min, max)' for each feature. min, max should be parseable as
-                        float. 
-    returns:
-        slices reformatted using tuples of floats instead
-    """
-    reformatted_slices = []
-    for slice_ in slices:
-        reformatted_slice = []
-        for feature in slice_:
-            middle_str = feature[1:-1]
-            split_middle = middle_str.split(',')
-            feature = (float(split_middle[0]), float(split_middle[1]))
-            reformatted_slice.append(feature)
-        reformatted_slices.append(reformatted_slice)
-    return reformatted_slices
-
-onehot_cols = []
