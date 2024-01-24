@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np
 import numpy.typing as npt
 import typing as tp
-import const
-import utils
+from . import const
+from . import utils
 
 POSTGRES_DEFAULT_PORT = 5432
 
@@ -97,6 +97,15 @@ def construct_count_query_str(task: str, idx: int, slice_: npt.NDArray) -> str:
     query += " AND " + const.Y_COLUMN[task] + " IS NOT NULL"
     return query + ";"
 
+def construct_source_size_query_str(task: str, idx: int) -> str:
+    query = "SELECT COUNT(*)"
+    query += " FROM " + const.CONN_DETAILS[task]["table"]
+    query += " WHERE train = false AND test = false AND "
+    query += const.SOURCES[task]["pivot"] + " = " \
+        + str(const.SOURCES[task]["pivot_values"][idx])
+    query += " AND " + const.Y_COLUMN[task] + " IS NOT NULL"
+    return query + ";"
+
 def construct_train_query_str(task: str) -> str:
     query = "SELECT "
     x_features = get_x_features(task)
@@ -132,6 +141,16 @@ def get_conn_cursor(task: str):
 def get_slice_count(task: str, idx: int, slice_: npt.NDArray) -> npt.NDArray:
     conn, cur = get_conn_cursor(task)
     cur.execute(construct_count_query_str(task, idx, slice_))
+    rows = cur.fetchall()
+    cnt = rows
+    cur.close()
+    conn.close()
+    return rows[0][0]
+
+# Gets the size of a source
+def get_source_size(task: str, idx: int) -> npt.NDArray:
+    conn, cur = get_conn_cursor(task)
+    cur.execute(construct_source_size_query_str(task, idx))
     rows = cur.fetchall()
     cnt = rows
     cur.close()

@@ -2,11 +2,12 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import typing as tp
-import dbsource
-import subroutines
 import time
-import const
-import utils
+from . import dbsource
+from . import subroutines
+from . import const
+from . import utils
+from . import dt
 
 """
 Defines and exposes the API functions to client programs. 
@@ -57,13 +58,34 @@ def pipeline_train_py(
     train_losses = subroutines.get_loss_vector(model, train_x, train_y, task)
     test_losses = subroutines.get_loss_vector(model, test_x, test_y, task)
     time_end_func = time.time()
+    # Computer slice losses (train)
+    bucket_train_x = utils.recode_raw_to_binned(train_x, task)
+    slice_train_losses = []
+    for col in bucket_train_x.columns:
+        unique_vals = bucket_train_x[col].unique()
+        for val in unique_vals:
+            train_indices = bucket_train_x[bucket_train_x[col] == val].index
+            train_subset_losses = train_losses[train_indices]
+            if len(train_subset_losses) > 0:
+                slice_train_losses.append(train_subset_losses.mean())
+    # Computer slice losses (test)
+    bucket_test_x = utils.recode_raw_to_binned(test_x, task)
+    slice_test_losses = []
+    for col in bucket_test_x.columns:
+        unique_vals = bucket_test_x[col].unique()
+        for val in unique_vals:
+            test_indices = bucket_test_x[bucket_test_x[col] == val].index
+            test_subset_losses = test_losses[test_indices]
+            if len(test_subset_losses) > 0:
+                slice_test_losses.append(test_subset_losses.mean())
     # Construct stats dictionary
     train_stats = {
         "time_train": time_end_train - time_start,
         "time_func": time_end_func - time_start,
         "agg_train_loss": np.mean(train_losses),
         "agg_test_loss": np.mean(test_losses),
-        "slice_losses": None # TODO: Figure out how to implement this
+        "slice_train_losses": sorted(slice_train_losses, reverse=True),
+        "slice_test_losses": sorted(slice_test_losses, reverse=True)
     }
     return train_losses, train_stats
 
@@ -114,6 +136,7 @@ def pipeline_dt_py(
     undersample_methods: tp.Union[str, tp.List[str]],
     train: pd.DataFrame,
     algos: tp.List[str],
+    explore_scale: float,
     task: str
 ) -> dict:
     """
@@ -149,18 +172,19 @@ def pipeline_dt_py(
                 on the input)
     """
     result = dict()
-    dt = dt.DT(slices, costs, task)
+    train_x, train_y = utils.split_df_xy(train, const.Y_COLUMN[task])
+    dt_ = dt.DT(slices, costs, train_x, explore_scale, task)
     if type(undersample_methods) is str:
-        undersample_methods = [undersample_method] * len(algos)
+        undersample_methods = [undersample_methods for _ in range(len(algos))]
     for idx, algo in enumerate(algos):
-        additional_datasets, dt_stats = dt.run(algo, query_counts)
+        additional_datasets, dt_stats = dt_.run(algo, query_counts)
         undersample_method = undersample_methods[idx]
         for idx, add in enumerate(additional_datasets):
-            additional_datasets[idx] = utils.undersample(additional_data, undersample_method)
-        combined_data = None # TODO: Combine all undersampled dataframed
-        aug_x, aug_y = split_df_xy(combined_data, const.Y_COLUMN[y_name])
+            additional_datasets[idx] = utils.undersample(add, undersample_method, query_counts[idx])
+        combined_data = pd.concat(additional_datasets, ignore_index=True)
+        aug_x, aug_y = utils.split_df_xy(combined_data, const.Y_COLUMN[task])
         result.update({algo: (aug_x, aug_y, dt_stats)})
-    return dt_results
+    return result
 
 def pipeline_train_dml(
     train_x: pd.DataFrame,
@@ -182,7 +206,8 @@ def pipeline_train_dml(
             time_train (float): Time, in seconds, that training took. 
             time_func (float): Time, in seconds, that this entire function took. 
             agg_loss (float): Average loss (or accuracy) across all data points. 
-            slice_losses (pd.DataFrame): A dataframe containing all slices up to
+            slice_losget_source_size(self.task, source)
+                stat_tracker[source] /ses (pd.DataFrame): A dataframe containing all slices up to
                 max_depth in "DT" format, and additional "loss" column which
                 stores average loss (or accuracy) for that slice, and "size"
                 column which stores the size of that slice in train set. 
@@ -253,38 +278,3 @@ def pipeline_dt_dml(
     """
     # TODO: DML Implementation & call Python binding
     return dt_results
-
-# Test cases
-if __name__ == "__main__":
-    task = "flights-regress"
-    y_str = const.Y_COLUMN[task]
-
-    train = dbsource.get_train(task)
-    print("Train set:")
-    print(train)
-    print()
-
-    test = dbsource.get_test(task)
-    print("Test set:")
-    print(test)
-    print()
-
-    train_losses, train_stats = pipeline_train_py(train, test, 1, task) 
-
-    print("Train losses:")
-    print(train_losses)
-    print()
-
-    print("Train stats:")
-    print(train_stats)
-    print()
-
-    slices, sliceline_stats = pipeline_sliceline_py(train, train_losses, 0.8, 2, 0, 3, task)
-
-    print("Slices:")
-    print(slices)
-    print()
-
-    print("Sliceline stats:")
-    print(sliceline_stats)
-    print()

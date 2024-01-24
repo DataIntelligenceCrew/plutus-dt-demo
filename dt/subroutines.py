@@ -3,9 +3,9 @@ import numpy.typing as npt
 import pandas as pd
 import typing as tp
 import xgboost as xgb
-import dbsource
 from sliceline.slicefinder import Slicefinder
-import const
+from . import const
+from . import dbsource
 
 """
 Subroutines called by the _py pipeline API functions. 
@@ -79,8 +79,21 @@ def get_slices(binned_x, losses, alpha, k, max_l, min_sup) -> tp.Tuple[npt.NDArr
                 - slice_average_error: the average error in the slice (sum_slice_error / slice_size)
     """
     print("Running sliceliner with alpha =", alpha, ", k", k, ", max_l", max_l, ", min_sup", min_sup)
-    sf = Slicefinder(alpha = alpha, k = k, max_l = max_l, min_sup = min_sup, verbose = False)
-    sf.fit(binned_x, losses)
+    sf = Slicefinder(alpha = alpha, k = k, max_l = max_l, min_sup = min_sup, verbose = True)
+    print("Fitting sliceliner with", binned_x, losses)
+    print(binned_x)
+    print(binned_x.dtypes)
+    print(set(binned_x['day']))
+    #print("Loss values: ", set(losses))
+    sf.fit(binned_x.to_numpy(), losses)
+    print("slicefinder obj", sf)
+    print("top silces", sf.top_slices_)
+    #print("feature names in", sf.feature_names_in_)
+    print("feature names out", sf.get_feature_names_out()),
+    print("top slices stats", sf.top_slices_statistics_)
+    print("average error", sf.average_error_)
+    #df = pd.DataFrame(sf.top_slices_, columns=sf.feature_names_in_, index=sf.get_feature_names_out())
+    #print(df)
     return sf.top_slices_, sf.top_slices_statistics_
 
 def belongs_to_slice(
@@ -93,7 +106,7 @@ def belongs_to_slice(
         slice: d-length numpy array encoding one slice. 
     """
     # Filter out None columns
-    not_none_mask = np.ma.masked_where(slice_ is not None, slice_)
+    not_none_mask = slice_ != None
     not_none_x = x[not_none_mask]
     # Test equality of not-None columns
     not_none_slice = slice_[not_none_mask]
@@ -113,10 +126,11 @@ def slice_ownership(
     """
     n = len(binned_x)
     k = len(slices)
-    ownership_mat = numpy.empty((n,k), dtype=bool)
+    ownership_mat = np.empty((n,k), dtype=bool)
     for i in range(n):
         for j in range(k):
             ownership_mat[i][j] = belongs_to_slice(binned_x[i], slices[j])
+    print(ownership_mat)
     return ownership_mat
 
 def get_slice_cnts(
@@ -131,5 +145,5 @@ def get_slice_cnts(
         The number of rows in binned_x that belong to the given slices. 
     """
     ownership_mat = slice_ownership(binned_x, slices)
-    slice_cnts = np.sum(ownership_mat, axis=1)
+    slice_cnts = np.sum(ownership_mat, axis=0)
     return slice_cnts

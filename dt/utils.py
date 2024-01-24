@@ -2,8 +2,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from typing import Tuple
-import dbsource
-import const
+from . import const
 
 # Splits a dataframe into xs and ys based on the given name of y variable
 def split_df_xy(df: pd.DataFrame, y: str) -> Tuple[pd.DataFrame, npt.NDArray]:
@@ -79,26 +78,30 @@ def recode_raw_to_binned(raw_data: pd.DataFrame, task: str) -> pd.DataFrame:
     num_features = const.NUMERIC_FEATURES[task]
     num_bins = const.NUMERIC_BIN_BORDERS[task]
     for num in num_features:
-        raw_data[num] = pd.cut(raw_data[num], bins = num_bins[num], labels=None)
+        binned = pd.cut(raw_data[num], bins = num_bins[num], labels=None)
+        raw_data[num] = binned.cat.codes
     return raw_data
 
-def undersample(dataset: pd.DataFrame, method: str) -> pd.DataFrame:
-    return None
+def undersample(dataset: pd.DataFrame, method: str, cnt: int) -> pd.DataFrame:
+    if method == "random":
+        return dataset.sample(cnt)
+    else:
+        return None
 
 # Testing methods
-if __name__ == "__main__":
-    task = "flights-classify"
-    raw_data = dbsource.get_query_result(task, 2)
-    print("Data in raw format:")
-    print(raw_data)
-    print()
-
-    train_data = recode_raw_to_train(raw_data, task)
-    print("Data in train format:")
-    print(train_data)
-    print()
-
-    binned_data = recode_raw_to_binned(raw_data, task)
-    print("Data in binned format:")
-    print(binned_data)
-    print()
+#if __name__ == "__main__":
+#    task = "flights-classify"
+#    raw_data = dbsource.get_query_result(task, 2)
+#    print("Data in raw format:")
+#    print(raw_data)
+#    print()
+#
+#    train_data = recode_raw_to_train(raw_data, task)
+#    print("Data in train format:")
+#    print(train_data)
+#    print()
+#
+#    binned_data = recode_raw_to_binned(raw_data, task)
+#    print("Data in binned format:")
+#    print(binned_data)
+#    print()

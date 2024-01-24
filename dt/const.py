@@ -181,10 +181,10 @@ NUMERIC_BIN_BORDERS = {
         "day": [0.0, 5.5, 10.5, 15.5, 20.5, 25.5, 32.0], 
         "weekday": [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5], 
         "distance": [0.0, 235.5, 356.5, 481.5, 626.5, 817.5, 1015.5, 1444.5, float('inf')], 
-        "origin_latitude": [float('-inf'), 29.98333333, 33.43416667, 35.03527778, 37.61888889, 39.77444444, 40.78416667, 42.36305556, float('inf')], 
-        "origin_longitude": [float('-inf'), -118.40805556, -107.89472222, -96.85083333, -87.90666667, -84.42805556, -80.94916667, -76.67, float('inf')],
-        "dest_latitude": [float('-inf'), 29.98333333, 33.43416667, 35.03527778, 37.61888889, 39.77444444, 40.78416667, 42.36305556, float('inf')],
-        "dest_longitude": [float('-inf'), -118.40805556, -107.89472222, -96.85083333, -87.90666667, -84.42805556, -80.94916667, -76.67, float('inf')]
+        "origin_latitude": [-15, 29.98333333, 33.43416667, 35.03527778, 37.61888889, 39.77444444, 40.78416667, 42.36305556, 72], 
+        "origin_longitude": [-177, -118.40805556, -107.89472222, -96.85083333, -87.90666667, -84.42805556, -80.94916667, -76.67, 150],
+        "dest_latitude": [-15, 29.98333333, 33.43416667, 35.03527778, 37.61888889, 39.77444444, 40.78416667, 42.36305556, 72],
+        "dest_longitude": [-177, -118.40805556, -107.89472222, -96.85083333, -87.90666667, -84.42805556, -80.94916667, -76.67, 150]
     }
 }
 
@@ -208,17 +208,19 @@ CONN_DETAILS = {
 SOURCES = {
     "flights-classify": {
         "pivot": "year",
+        "n": 6,
         "pivot_values": [2018, 2019, 2020, 2021, 2022, 2023],
         "source_sizes": [7154915, 8091684, 5022397, 6311871, 7013508, 6072707],
-        "batch": 10,
+        "batch": 100,
         "sample_percent": 0.1,
         "train_percent": 0.1
     },
     "flights-regress": {
         "pivot": "year",
+        "n": 6,
         "pivot_values": [2018, 2019, 2020, 2021, 2022, 2023],
         "source_sizes": [7154915, 8091684, 5022397, 6311871, 7013508, 6072707],
-        "batch": 10,
+        "batch": 100,
         "sample_percent": 0.1,
         "train_percent": 0.1
     }
@@ -228,6 +230,37 @@ EPSILON_PROB = 0.000001
 
 DATASET_DESCRIPTIONS = {
     "flights-classify": """
+* Dataset: US Bureau of Transportation Statistics [On-Time Performance](https://www.transtats.bts.gov/Fields.asp?gnoyr_VQ=FGK)\n
+* n = 40mil\n
+* Data sources: Split by marketing airline
+
+**X variables**
+
+| **Variable** | **Type** | **Description** |
+|---|---|---|
+| year | int | 2018 - 2023 |
+| month | int | Month |
+| day | int | Day of month |
+| weekday | int | Day of week |
+| scheduled departure time | int | 00:00 to 23:59 |
+| marketing carrier | categorical | Airline that sold the tickets (9 total) |
+| operating carrier | categorical | Airline that operated the airpline (21 total) |
+| origin & destination location | float | longitude & latitude of origin & destination |
+| origin & destination state | categorical | State of origin & destination (51 total) |
+| distance | int | Travel distance (in miles) |
+
+**y variable**
+
+| **Variable**        | **Type**    | **Values**                  |
+|---------------------|-------------|-----------------------------|
+| arrival performance | categorical | on-time, delayed, or cancelled |
+""",
+
+    "census": """
+TODO: write a description for the census data
+""",
+
+"flights-regress": """
 * Dataset: US Bureau of Transportation Statistics [On-Time Performance](https://www.transtats.bts.gov/Fields.asp?gnoyr_VQ=FGK)\n
 * n = 40mil\n
 * Data sources: Split by marketing airline
