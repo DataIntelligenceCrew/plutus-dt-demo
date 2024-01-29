@@ -51,9 +51,9 @@ def get_loss_vector(
         and 1 or 0 if task is classification. 
     """
     preds = model.predict(data_x)
+    print(preds, data_y)
     if const.Y_IS_CATEGORICAL[task]:
-        loss = np.abs(data_y - preds)
-        return loss[loss > 0] == 1
+        return (preds == data_y).astype(int)
     else:
         return (data_y - preds)**2
 
@@ -95,55 +95,3 @@ def get_slices(binned_x, losses, alpha, k, max_l, min_sup) -> tp.Tuple[npt.NDArr
     #df = pd.DataFrame(sf.top_slices_, columns=sf.feature_names_in_, index=sf.get_feature_names_out())
     #print(df)
     return sf.top_slices_, sf.top_slices_statistics_
-
-def belongs_to_slice(
-    x: npt.NDArray,
-    slice_: npt.NDArray
-) -> bool:
-    """
-    params: 
-        x: d-length numpy array encoding one data point. 
-        slice: d-length numpy array encoding one slice. 
-    """
-    # Filter out None columns
-    not_none_mask = slice_ != None
-    not_none_x = x[not_none_mask]
-    # Test equality of not-None columns
-    not_none_slice = slice_[not_none_mask]
-    return np.array_equal(not_none_x, not_none_slice)
-
-def slice_ownership(
-    binned_x: npt.NDArray, 
-    slices: npt.NDArray
-) -> npt.NDArray:
-    """
-    params:
-        binned_x: X variables of data in binned encoding, as numpy matrix. 
-        slices: Slices encoded as numpy matrix allowing None. 
-    returns:
-        A numpy boolean matrix where array[i][j] is set to True if the ith
-        tuple belongs to the jth slice. 
-    """
-    n = len(binned_x)
-    k = len(slices)
-    ownership_mat = np.empty((n,k), dtype=bool)
-    for i in range(n):
-        for j in range(k):
-            ownership_mat[i][j] = belongs_to_slice(binned_x[i], slices[j])
-    print(ownership_mat)
-    return ownership_mat
-
-def get_slice_cnts(
-    binned_x: npt.NDArray,
-    slices: pd.DataFrame
-) -> npt.NDArray:
-    """
-    params:
-        binned_x: X variables of dataset in binned encoding. 
-        slices: Top-k slices in integer dataframe format. 
-    returns:
-        The number of rows in binned_x that belong to the given slices. 
-    """
-    ownership_mat = slice_ownership(binned_x, slices)
-    slice_cnts = np.sum(ownership_mat, axis=0)
-    return slice_cnts

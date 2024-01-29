@@ -82,9 +82,48 @@ def recode_raw_to_binned(raw_data: pd.DataFrame, task: str) -> pd.DataFrame:
         raw_data[num] = binned.cat.codes
     return raw_data
 
+def recode_slice_to_df(slices: npt.NDArray, task: str) -> pd.DataFrame:
+    """
+    params:
+        slice: Slice in ndarray encoding. 
+        task: Valid target task key. 
+    returns: Description of each slice as dataframe. 
+    """
+    numeric_cols = const.NUMERIC_FEATURES[task]
+    categorical_cols = const.CATEGORICAL_FEATURES[task]
+    num_categorical = len(categorical_cols)
+    df_slices = []
+    for np_slice in slices:
+        print(np_slice)
+        df_slice = []
+        for i in range(len(np_slice)):
+            int_code = np_slice[i]
+            if int_code is None: # Feature is not included in slice
+                str_repr = None
+            else:
+                int_code = int(np_slice[i])
+                if i < num_categorical:
+                    col_name = categorical_cols[i]
+                    str_repr = const.REVERSE_CATEGORICAL_MAPPINGS[task][col_name][int_code]
+                else:
+                    idx = i - num_categorical
+                    col_name = numeric_cols[idx]
+                    str_repr = "(" + str(const.NUMERIC_BIN_BORDERS[task][col_name][int_code])
+                    str_repr += "," + str(const.NUMERIC_BIN_BORDERS[task][col_name][int_code + 1]) + ")"
+            print(str_repr)
+            df_slice.append(str_repr)
+        df_slices.append(df_slice)
+    print("DEBUG")
+    print(slices)
+    print(df_slices)
+    return pd.DataFrame(df_slices, columns = categorical_cols + numeric_cols)
+
 def undersample(dataset: pd.DataFrame, method: str, cnt: int) -> pd.DataFrame:
     if method == "random":
-        return dataset.sample(cnt)
+        if dataset is None or len(dataset) == 0:
+            return dataset
+        else:
+            return dataset.sample(cnt)
     else:
         return None
 

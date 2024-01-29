@@ -65,6 +65,7 @@ def pipeline_train_py(
         unique_vals = bucket_train_x[col].unique()
         for val in unique_vals:
             train_indices = bucket_train_x[bucket_train_x[col] == val].index
+            print("DEBUG", val, train_indices, train_losses)
             train_subset_losses = train_losses[train_indices]
             if len(train_subset_losses) > 0:
                 slice_train_losses.append(train_subset_losses.mean())
@@ -87,7 +88,7 @@ def pipeline_train_py(
         "slice_train_losses": sorted(slice_train_losses, reverse=True),
         "slice_test_losses": sorted(slice_test_losses, reverse=True)
     }
-    return train_losses, train_stats
+    return train_losses, test_losses, train_stats
 
 def pipeline_sliceline_py(
     train: pd.DataFrame,
@@ -137,6 +138,7 @@ def pipeline_dt_py(
     train: pd.DataFrame,
     algos: tp.List[str],
     explore_scale: float,
+    gt_stats: npt.NDArray,
     task: str
 ) -> dict:
     """
@@ -173,7 +175,7 @@ def pipeline_dt_py(
     """
     result = dict()
     train_x, train_y = utils.split_df_xy(train, const.Y_COLUMN[task])
-    dt_ = dt.DT(slices, costs, train_x, explore_scale, task)
+    dt_ = dt.DT(slices, costs, train_x, explore_scale, gt_stats, task)
     if type(undersample_methods) is str:
         undersample_methods = [undersample_methods for _ in range(len(algos))]
     for idx, algo in enumerate(algos):
@@ -182,8 +184,8 @@ def pipeline_dt_py(
         for idx, add in enumerate(additional_datasets):
             additional_datasets[idx] = utils.undersample(add, undersample_method, query_counts[idx])
         combined_data = pd.concat(additional_datasets, ignore_index=True)
-        aug_x, aug_y = utils.split_df_xy(combined_data, const.Y_COLUMN[task])
-        result.update({algo: (aug_x, aug_y, dt_stats)})
+        #aug_x, aug_y = utils.split_df_xy(combined_data, const.Y_COLUMN[task])
+        result.update({algo: (combined_data, dt_stats)})
     return result
 
 def pipeline_train_dml(

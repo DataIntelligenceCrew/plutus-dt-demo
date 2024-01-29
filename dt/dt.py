@@ -25,6 +25,7 @@ class DT:
         costs: npt.NDArray,
         train_x: pd.DataFrame,
         explore_scale: float,
+        gt_stats: npt.NDArray,
         task: str):
         """
         params
@@ -39,6 +40,7 @@ class DT:
         self.m = len(slices) # Number of slices
         self.task = task
         self.explore_scale = explore_scale
+        self.gt_stats = gt_stats
         self.train_x = train_x
 
     def __repr__(self):
@@ -63,13 +65,7 @@ class DT:
         # Initialize stat tracker
         if algorithm == "ratiocoll":
             binned_x = utils.recode_raw_to_binned(self.train_x, self.task).to_numpy()
-            stat_tracker = np.empty((self.n, self.m))
-            for source in range(self.n):
-                for slice_ in range(self.m):
-                    cnt = dbsource.get_slice_count(self.task, source, self.slices[slice_])
-                    stat_tracker[source][slice_] = cnt
-                source_cnt = dbsource.get_source_size(self.task, source)
-                stat_tracker[source] /= source_cnt
+            stat_tracker = self.gt_stats
         elif algorithm == "exploreexploit":
             stat_tracker = np.zeros((self.n, self.m), dtype=int)
             # Compute the number of exploration iterations
@@ -80,11 +76,14 @@ class DT:
         elif algorithm == "random":
             stat_tracker = None
         print("Stats:", stat_tracker)
+        # Keep track of which sources are chosen
+        sources_cnt = [0 for i in range(self.n)]
         
         itr = 0
         # Loop while query is not satisfied
         while np.any(remaining_query > 0):
             chosen_source = self.choose_ds(algorithm, itr, stat_tracker, remaining_query)
+            sources_cnt[chosen_source] += 1
             itr += 1
             # Issue query and recode result to raw
             query_result = dbsource.get_query_result(self.task, chosen_source)
@@ -95,7 +94,7 @@ class DT:
             result_x, _ = utils.split_df_xy(query_result, const.Y_COLUMN[self.task])
             binned_x = utils.recode_raw_to_binned(result_x, self.task).to_numpy()
             # slice_ownership[i][j] denotes whether ith tuple belongs to slice j
-            slice_ownership = subroutines.slice_ownership(binned_x, self.slices)
+            slice_ownership = dbsource.slice_ownership(binned_x, self.slices)
             # Count the frequency of each subgroup in query result
             for i in range(len(result_x)):
                 for j in range(self.m):
@@ -115,7 +114,8 @@ class DT:
         
         # Generate stats
         stats = {
-            "cost": total_cost
+            "cost": total_cost,
+            "sources": sources_cnt
         }
         print("DT ", algorithm, " complete")
         return additional_data, stats

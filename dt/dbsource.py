@@ -62,7 +62,7 @@ def construct_query_str(task: str, idx: int) -> str:
     query += " WHERE " + const.SOURCES[task]["pivot"] + " = " \
         + str(const.SOURCES[task]["pivot_values"][idx])
     # Exclude train, test sets
-    query += " AND train = false AND test = false "
+    query += " AND train2 = false AND test = false "
     # Remove null y values
     query += " AND " + const.Y_COLUMN[task] + " IS NOT NULL"
     # Randomly shuffle the tablesample to reduce bias
@@ -89,7 +89,7 @@ def construct_count_query_str(task: str, idx: int, slice_: npt.NDArray) -> str:
             query += num + " <= " + str(buckets[num][slice_[i] + 1]) + " AND "
         i += 1
     # Exclude train, test sets
-    query += " train = false AND test = false AND "
+    query += " train2 = false AND test = false AND "
     # Select the correct source
     query += const.SOURCES[task]["pivot"] + " = " \
         + str(const.SOURCES[task]["pivot_values"][idx])
@@ -100,7 +100,7 @@ def construct_count_query_str(task: str, idx: int, slice_: npt.NDArray) -> str:
 def construct_source_size_query_str(task: str, idx: int) -> str:
     query = "SELECT COUNT(*)"
     query += " FROM " + const.CONN_DETAILS[task]["table"]
-    query += " WHERE train = false AND test = false AND "
+    query += " WHERE train2 = false AND test = false AND "
     query += const.SOURCES[task]["pivot"] + " = " \
         + str(const.SOURCES[task]["pivot_values"][idx])
     query += " AND " + const.Y_COLUMN[task] + " IS NOT NULL"
@@ -113,7 +113,7 @@ def construct_train_query_str(task: str) -> str:
         query += feature + ","
     query += const.Y_COLUMN[task]
     query += " FROM " + const.CONN_DETAILS[task]["table"]
-    query += " WHERE train = true AND " + const.Y_COLUMN[task] + " IS NOT NULL"
+    query += " WHERE train2 = true AND " + const.Y_COLUMN[task] + " IS NOT NULL"
     return query + ";"
 
 def construct_test_query_str(task: str) -> str:
@@ -164,6 +164,103 @@ def jdbc_str(task: str):
     conn += '/' + conn_details["database"]
     return conn
 
+def construct_slice_cnt_select_query(task: str, idx: int) -> str:
+    query = "SELECT "
+    x_features = get_x_features(task)
+    for i, feature in enumerate(x_features):
+        query += feature + ","
+    query += const.Y_COLUMN[task]
+    query += " FROM " + const.CONN_DETAILS[task]['table']
+    query += " TABLESAMPLE SYSTEM(1) "
+    query += " WHERE train2 = false AND test = false AND "
+    query += const.SOURCES[task]["pivot"] + " = " \
+        + str(const.SOURCES[task]["pivot_values"][idx])
+    query += " AND " + const.Y_COLUMN[task] + " IS NOT NULL"
+    return query + " LIMIT 100000;"
+
+def get_slice_cnts_in_source(slices: npt.NDArray, source: int, task: str) -> npt.NDArray:
+    conn, cur = get_conn_cursor(task)
+    cur.itersize = 1000
+    query = construct_slice_cnt_select_query(task, source)
+    cur.execute(query)
+    slice_cnts = np.zeros((1,len(slices)), dtype=int)
+    col_names = [desc[0] for desc in cur.description]
+    while True:
+        rows = cur.fetchmany(cur.itersize)
+        if not rows:
+            break
+        rows_df = pd.DataFrame(rows, columns=col_names)
+        rows_raw = utils.recode_db_to_raw(rows_df, task)
+        rows_binned = utils.recode_raw_to_binned(rows_raw, task)
+        rows_binned = rows_binned.drop(const.Y_COLUMN[task], axis=1)
+        add_cnts = get_slice_cnts(rows_binned.to_numpy(), slices)
+        slice_cnts += add_cnts
+    cur.close()
+    conn.close()
+    return slice_cnts
+
+def slice_ownership(
+    binned_x: npt.NDArray, 
+    slices: npt.NDArray
+) -> npt.NDArray:
+    """
+    params:
+        binned_x: X variables of data in binned encoding, as numpy matrix. 
+        slices: Slices encoded as numpy matrix allowing None. 
+    returns:
+        A numpy boolean matrix where array[i][j] is set to True if the ith
+        tuple belongs to the jth slice. 
+    """
+    n = len(binned_x)
+    k = len(slices)
+    ownership_mat = np.empty((n,k), dtype=bool)
+    for i in range(n):
+        for j in range(k):
+            ownership_mat[i][j] = belongs_to_slice(binned_x[i], slices[j])
+    return ownership_mat
+
+def belongs_to_slice(
+    x: npt.NDArray,
+    slice_: npt.NDArray
+) -> bool:
+    """
+    params: 
+        x: d-length numpy array encoding one data point. 
+        slice: d-length numpy array encoding one slice. 
+    """
+    # Filter out None columns
+    not_none_mask = slice_ != None
+    not_none_x = x[not_none_mask]
+    # Test equality of not-None columns
+    not_none_slice = slice_[not_none_mask]
+    return np.array_equal(not_none_x, not_none_slice)
+
+def get_slice_cnts(
+    binned_x: npt.NDArray,
+    slices: pd.DataFrame
+) -> npt.NDArray:
+    """
+    params:
+        binned_x: X variables of dataset in binned encoding. 
+        slices: Top-k slices in integer dataframe format. 
+    returns:
+        The number of rows in binned_x that belong to the given slices. 
+    """
+    ownership_mat = slice_ownership(binned_x, slices)
+    slice_cnts = np.sum(ownership_mat, axis=0)
+    return slice_cnts
+
+def construct_stats_table(slices: npt.NDArray, task: str):
+    n = const.SOURCES[task]['n']
+    m = len(slices)
+    stat_tracker = np.empty((n, m), dtype=float)
+    for source in range(n):
+        stat_tracker[source,:] = get_slice_cnts_in_source(slices, source, task)
+        source_cnt = const.SOURCES[task]['counts'][source]
+        stat_tracker[source,:] /= source_cnt
+    print("stat tracker", stat_tracker)
+    return stat_tracker
+
 # Testing methods
 if __name__ == "__main__":
     print("X features:")
@@ -189,3 +286,4 @@ if __name__ == "__main__":
     print("Slice count query string with slice " + str(slice_))
     print(construct_count_query_str("flights-classify", 0, slice_))
     print(get_slice_count("flights-classify", 0, slice_))
+
