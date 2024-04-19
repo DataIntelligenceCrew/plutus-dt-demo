@@ -7,6 +7,9 @@ from sliceline.slicefinder import Slicefinder
 from . import const
 from . import dbsource
 
+from systemds.context import SystemDSContext
+from systemds.operator.algorithm import slicefinder
+
 """
 Subroutines called by the _py pipeline API functions. 
 """
@@ -56,6 +59,7 @@ def get_loss_vector(
         return (preds == data_y).astype(int)
     else:
         return (data_y - preds)**2
+    
 
 def get_slices(binned_x, losses, alpha, k, max_l, min_sup) -> tp.Tuple[npt.NDArray, dict]:
     """
@@ -95,3 +99,29 @@ def get_slices(binned_x, losses, alpha, k, max_l, min_sup) -> tp.Tuple[npt.NDArr
     #df = pd.DataFrame(sf.top_slices_, columns=sf.feature_names_in_, index=sf.get_feature_names_out())
     #print(df)
     return sf.top_slices_, sf.top_slices_statistics_
+
+
+def get_slices_dml(binned_x, losses, alpha, k, max_l, min_sup) -> tp.Tuple[npt.NDArray, dict]:
+    """
+    params:
+        binned_x: X variables of training data in binned encoding.
+        losses: 1D loss vector from the training data.
+        alpha: Parameter for prioritizing size or performance, from 0.0 to 1.0
+        k: The number of slices to return.
+        max_l: The maximum level of slices to search.
+        min_up: Minimum number of tuples required per slice to return.
+    returns:
+        slices: Top-k slices encoded as (d,k) integer matrix (allows None).
+        slices_statistics: Same as the sliceline package.
+    """
+    with SystemDSContext() as sds_sliceline:
+        sds_X = sds_sliceline.from_numpy(binned_x)
+        sds_e = sds_sliceline.from_numpy(losses)
+        [slices, slices_stats, debug] = slicefinder(sds_X, sds_e, alpha=alpha, k=k, maxL=max_l, minSup=min_sup,
+                                                    verbose=True).compute()
+    
+    slices = slices - 1
+    slices = pd.DataFrame(slices, dtype=int)
+    slices = slices.replace({-1: None})
+    
+    return slices.to_numpy(), slices_stats

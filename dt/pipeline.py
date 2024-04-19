@@ -218,12 +218,13 @@ def pipeline_train_dml(
     return train_losses, train_stats
 
 def pipeline_sliceline_dml(
-    train_x: pd.DataFrame,
-    train_losses: npt.NDArray[np.float64],
-    alpha: float,
-    max_l: int,
-    min_sup: int,
-    k: int
+        train: pd.DataFrame,
+        train_losses: npt.NDArray[np.float64],
+        alpha: float,
+        max_l: int,
+        min_sup: int,
+        k: int,
+        task: str
 ) -> tp.Tuple[pd.DataFrame, dict]:
     """
     params:
@@ -238,7 +239,22 @@ def pipeline_sliceline_dml(
             time_sliceline (float): Time, in seconds, that sliceline took. 
             time_func (float): Time, in seconds, that this entire function took. 
     """
-    # TODO: DML Implementation & call Python binding
+    
+    time_start = time.time()
+    binned = utils.recode_raw_to_binned(train, task) + 1
+    binned_x = binned.drop(const.Y_COLUMN[task], axis=1)
+    time_start_sliceline = time.time()
+    slices, slices_stats = subroutines.get_slices_dml(binned_x, train_losses, alpha, k, max_l, min_sup)
+    
+    time_end_sliceline = time.time()
+    sliceline_stats = {
+        "time_sliceline": time_end_sliceline - time_start_sliceline,
+        "time_func": time_end_sliceline - time_start,
+        "scores": [slice_[0] for slice_ in slices_stats],
+        "sizes": [slice_[3] for slice_ in slices_stats],
+        "errors": [slice_[1] for slice_ in slices_stats]
+    }
+    
     return slices, sliceline_stats
 
 def pipeline_dt_dml(
