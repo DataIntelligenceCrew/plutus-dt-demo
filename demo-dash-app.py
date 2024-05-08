@@ -680,9 +680,9 @@ def run_dt(n_clicks, task, data, algos):
 )
 def run_sliceline(n_clicks, alpha, k, max_l, min_sup, task):
   # If current stage is sliceline, reload the most recent slice result
-  train = global_data[task]['test']
+  train_sliceline = global_data[task]['test']
   train_losses = global_data[task]['test_losses']
-  slices, slices_stats = dt.pipeline.pipeline_sliceline_py(train, train_losses, alpha, max_l, min_sup, k, task)
+  slices, slices_stats = dt.pipeline.pipeline_sliceline_dml(train_sliceline, train_losses, alpha, max_l, min_sup, k, task)
   # Update slices
   global_data[task]['slices'] = slices
   global_data[task]['sliceline_stats'] = slices_stats

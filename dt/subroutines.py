@@ -115,7 +115,7 @@ def get_slices_dml(binned_x, losses, alpha, k, max_l, min_sup) -> tp.Tuple[npt.N
         slices_statistics: Same as the sliceline package.
     """
     with SystemDSContext() as sds_sliceline:
-        sds_X = sds_sliceline.from_numpy(binned_x)
+        sds_X = sds_sliceline.from_numpy(binned_x.to_numpy())
         sds_e = sds_sliceline.from_numpy(losses)
         [slices, slices_stats, debug] = slicefinder(sds_X, sds_e, alpha=alpha, k=k, maxL=max_l, minSup=min_sup,
                                                     verbose=True).compute()
