@@ -218,7 +218,7 @@ def pipeline_train_dml(
     return train_losses, train_stats
 
 def pipeline_sliceline_dml(
-        train: pd.DataFrame,
+        train_sl: pd.DataFrame,
         train_losses: npt.NDArray[np.float64],
         alpha: float,
         max_l: int,
@@ -241,8 +241,13 @@ def pipeline_sliceline_dml(
     """
     
     time_start = time.time()
-    binned = utils.recode_raw_to_binned(train, task) + 1
+    binned = utils.recode_raw_to_binned(train_sl.copy(), task) + 1
     binned_x = binned.drop(const.Y_COLUMN[task], axis=1)
+
+    if task == 'flights-classify':
+        train_losses = [1 if x == 0 else 0 for x in train_losses]
+        train_losses = pd.Series(train_losses).to_numpy()
+        
     time_start_sliceline = time.time()
     slices, slices_stats = subroutines.get_slices_dml(binned_x, train_losses, alpha, k, max_l, min_sup)
     
