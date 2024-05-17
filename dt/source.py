@@ -82,11 +82,18 @@ class SimpleDBSource(AbstractSource):
         # Acquire connection & cursor to table, then execute select query
         self.conn = psycopg2.connect(conn_str)
         self.select_cur = self.conn.cursor()
-        self.select_cur.execute("SELECT {', '.join(self.columns)} FROM {self.table};")
+        query = f"SELECT {','.join(self.columns)} FROM {self.table};"
+        self.select_cur.execute(query)
         self.return_column_names = [desc[0] for desc in self.select_cur.description]
         # Count the number of tuples in table
         self.initial_size: int = self._total_size()
         self.num_queried: int = 0  # Number of fresh tuples queried so far
+
+    def close(self):
+        if self.select_cur is not None:
+            self.select_cur.close()
+        self.conn.commit()
+        self.conn.close()
 
     def get_next_batch(self, batch_size: tp.Union[int, None]) -> tp.Union[pd.DataFrame, None]:
         if not self.has_next():
@@ -114,10 +121,10 @@ class SimpleDBSource(AbstractSource):
         count_cur = self.conn.cursor()
         # Construct count query from slice definition
         values = []
-        query = "SELECT COUNT(*) FROM {self.table} WHERE "
+        query = f"SELECT COUNT(*) FROM {self.table} WHERE "
         for column, conditions in slice_defn.items():
             for op, val in conditions:
-                query += "{column} {op} %s AND "
+                query += f"{column} {op} %s AND "
                 values.append(val)
         query += " TRUE;"
         # Execute query & parse result
@@ -129,5 +136,6 @@ class SimpleDBSource(AbstractSource):
         returns the total number of fresh tuples in the table at the beginning
         """
         count_cur = self.conn.cursor()
-        count_cur.execute("SELECT COUNT(*) FROM {self.table};")
+        query = f"SELECT COUNT(*) FROM {self.table};"
+        count_cur.execute(query)
         return count_cur.fetchone()[0]

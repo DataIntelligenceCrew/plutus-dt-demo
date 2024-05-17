@@ -18,21 +18,22 @@ class TestSimpleDBSource(ut.TestCase):
         # Create a table in the test database
         self.conn = psycopg2.connect(self.conn_str)
         cur = self.conn.cursor()
+        cur.execute("DROP TABLE IF EXISTS table1;")
         cur.execute(
-            "CREATE TABLE table1 (id serial PRIMARY KEY, num integer, flt float, txt char(1), bool boolean, omit varchar);")
+            "CREATE TABLE table1 (num integer, flt float, txt char(1), bool boolean, omit varchar);")
         cur.execute(
-            "INSERT INTO table1 (num, flt, txt, bool, omit) VALUES (1, 1.0, 'a', TRUE, 'hello'), (-5, -1.0, 'b', TRUE, NULL), (3, 2.5, 'c', FALSE, 'world'), (1, 1.0, 'a', FALSE, NULL)")
+            "INSERT INTO table1 (num, flt, txt, bool, omit) VALUES (1, 1.0, 'a', TRUE, 'hello'), (-5, -1.0, 'b', TRUE, NULL), (3, 2.5, 'c', FALSE, 'world'), (1, 1.0, 'a', FALSE, NULL);")
+        self.conn.commit()
         cur.close()
         # Create an instance of SimpleDBSource for this table
-        self.source1 = SimpleDBSource(self.conn_str, "table1", ['txt', 'num', 'flt', 'bool'])
+        self.source1 = dt.source.SimpleDBSource(self.conn_str, "table1", ['txt', 'num', 'flt', 'bool'])
 
     def tearDown(self):
         cur = self.conn.cursor()
-        cur.execute("DROP TABLE table1")
+        cur.execute("DROP TABLE table1;")
+        self.conn.commit()
+        cur.close()
         self.conn.close()
-
-    def test_new_from_config(self):
-        pass
 
     def test_get_next_batch(self):
         # Get a batch of 1 row, and also generate the expected (correct) dataframe
@@ -46,9 +47,9 @@ class TestSimpleDBSource(ut.TestCase):
 
         # Get a batch of unlimited rows, which should give the remaining 2 rows
         batch2 = self.source1.get_next_batch(batch_size=None)
-        expected_data2 = [('c', 3, 2.5, False), ('a', 1, 1.0, False)]
+        expected_data2 = [('b', -5, -1.0, True), ('c', 3, 2.5, False), ('a', 1, 1.0, False)]
         expected_batch2 = pd.DataFrame(data=expected_data2, columns=expected_columns)
-        self.assertIs(batch2, pd.DataFrame)  # Return type is dataframe
+        self.assertIsInstance(batch2, pd.DataFrame)  # Return type is dataframe
         pd.testing.assert_frame_equal(batch2, expected_batch2)
 
         # Get a batch of some rows, which should return None
@@ -57,17 +58,32 @@ class TestSimpleDBSource(ut.TestCase):
         batch4 = self.source1.get_next_batch(batch_size=1)
         self.assertIsNone(batch4)
 
+        self.source1.close()
+        batch5 = self.source1.get_next_batch(batch_size=None)
+        self.assertIsNone(batch5)
+
     def test_has_next(self):
-        self.fail()
+        self.assertEqual(self.source1.has_next(), True)
+        self.source1.get_next_batch(batch_size=2)
+        self.assertEqual(self.source1.has_next(), True)
+        self.source1.get_next_batch(batch_size=2)
+        self.assertEqual(self.source1.has_next(), False)
+        self.source1.get_next_batch(batch_size=None)
+        self.assertEqual(self.source1.has_next(), False)
+        self.source1.close()
 
     def test_total_size(self):
-        self.fail()
+        self.assertEqual(self.source1.total_size(), 4)
+        self.source1.get_next_batch(batch_size=None)
+        self.assertEqual(self.source1.total_size(), 4)
+        self.source1.close()
 
     def test_slice_count(self):
-        self.fail()
-
-    def test__total_size(self):
-        self.fail()
+        slice1 = {'bool': [('=', True)]}
+        self.assertEqual(self.source1.slice_count(slice1), 2)
+        slice2 = {'num': [('<', 0), ('>', -100)], 'flt': [('<', 0.0)]}
+        self.assertEqual(self.source1.slice_count(slice2), 1)
+        self.source1.close()
 
 
 if __name__ == '__main__':
