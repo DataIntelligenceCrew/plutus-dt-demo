@@ -3,7 +3,6 @@ import numpy.typing as npt
 import pandas as pd
 import typing as tp
 import time
-from . import dbsource
 from . import subroutines
 from . import const
 from . import utils
@@ -28,13 +27,11 @@ def pipeline_train_py(
     params:
         train: Training data in "raw" format.
         test: Test set in "raw" format.
-        max_depth: The maximum depth of slices to be considered for the slice_losses
-                   return value.
+        max_depth: The maximum depth of slices to be considered for the slice_losses return value. TODO: this does nothing atm
         task: Valid target task key. 
     returns:
         train_losses: 1D array, train set losses. 
-        train_stats: A dictionary to store various statistics about training
-            session. It should at least contain the following key-value pairs:
+        train_stats: A dictionary to store various statistics about training session. It should at least contain:
             time_train (float): Time, in seconds, that training took. 
             time_func (float): Time, in seconds, that this entire function took. 
             agg_loss (float): Average loss (or accuracy) across all data points. 
@@ -247,7 +244,7 @@ def pipeline_sliceline_dml(
     if task == 'flights-classify':
         train_losses = [1 if x == 0 else 0 for x in train_losses]
         train_losses = pd.Series(train_losses).to_numpy()
-        
+
     time_start_sliceline = time.time()
     slices, slices_stats = subroutines.get_slices_dml(binned_x, train_losses, alpha, k, max_l, min_sup)
     

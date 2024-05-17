@@ -1,19 +1,27 @@
-from unittest import TestCase
+import sys
+from pathlib import Path
+
+# Add the root directory to the sys.path list
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+import unittest as ut
 
 import pandas as pd
 import psycopg2
 
-from source import *
+import dt
 
 
-class TestSimpleDBSource(TestCase):
+class TestSimpleDBSource(ut.TestCase):
     def setUp(self):
         self.conn_str = "dbname=test user=jchang38 port=5432"
         # Create a table in the test database
         self.conn = psycopg2.connect(self.conn_str)
         cur = self.conn.cursor()
-        cur.execute("CREATE TABLE table1 (id serial PRIMARY KEY, num integer, flt float, txt char(1), bool boolean, omit varchar);")
-        cur.execute("INSERT INTO table1 (num, flt, txt, bool, omit) VALUES (1, 1.0, 'a', TRUE, 'hello'), (-5, -1.0, 'b', TRUE, NULL), (3, 2.5, 'c', FALSE, 'world'), (1, 1.0, 'a', FALSE, NULL)")
+        cur.execute(
+            "CREATE TABLE table1 (id serial PRIMARY KEY, num integer, flt float, txt char(1), bool boolean, omit varchar);")
+        cur.execute(
+            "INSERT INTO table1 (num, flt, txt, bool, omit) VALUES (1, 1.0, 'a', TRUE, 'hello'), (-5, -1.0, 'b', TRUE, NULL), (3, 2.5, 'c', FALSE, 'world'), (1, 1.0, 'a', FALSE, NULL)")
         cur.close()
         # Create an instance of SimpleDBSource for this table
         self.source1 = SimpleDBSource(self.conn_str, "table1", ['txt', 'num', 'flt', 'bool'])
@@ -60,3 +68,7 @@ class TestSimpleDBSource(TestCase):
 
     def test__total_size(self):
         self.fail()
+
+
+if __name__ == '__main__':
+    ut.main()

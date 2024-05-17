@@ -98,7 +98,7 @@ def recode_slice_to_df(slices: npt.NDArray, task: str) -> pd.DataFrame:
         df_slice = []
         for i in range(len(np_slice)):
             int_code = np_slice[i]
-            if int_code is None: # Feature is not included in slice
+            if int_code is None:  # Feature is not included in slice
                 str_repr = None
             else:
                 int_code = int(np_slice[i])
