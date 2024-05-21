@@ -5,9 +5,6 @@ import pandas as pd
 import typing as tp
 import random
 from . import utils
-from . import dbsource
-from . import const
-from .source import *
 from .task import *
 
 """
@@ -36,7 +33,7 @@ class DT:
         s += "slices: " + str(self.slices) + "\n"
         return s
 
-    def run(self, algorithm: str, query_counts: npt.NDArray) -> tp.Tuple[tp.List[pd.DataFrame], dict]:
+    def run(self, algorithm: str, query_counts: npt.NDArray) -> dict:
         """
         params:
             algorithm: either 'ratiocoll', 'exploreexploit', or 'random' for now
@@ -46,7 +43,7 @@ class DT:
                 in raw format.
             2. DT stats dictionary. 
         """
-        additional_data = [None] * self.m
+        additional_data = pd.DataFrame(columns=list(self.task.all_column_names()))
         remaining_query = np.copy(query_counts)
         total_cost = 0
         # Initialize stat tracker
@@ -87,56 +84,43 @@ class DT:
             slice_ownership = self.task.slice_ownership(result_x, self.slices)
             # Count the frequency of each subgroup in query result
             for i in range(len(result_x)):
-                for j in range(self.m):
-                    # Row belongs to slice
-                    if slice_ownership[i][j]:
-                        # Update stats if we're running such an algorithm
-                        if algorithm == "exploreexploit":
-                            stat_tracker[chosen_source][j] += 1
-                        # Decrement remaining query
-                        remaining_query[j] -= 1
-                        # Append row to additional data
-                        result_row = query_result.iloc[i, :].to_frame().T
-                        if additional_data[j] is None:
-                            additional_data[j] = result_row
-                        else:
-                            additional_data[j] = pd.concat([additional_data[j], result_row], ignore_index=True)
-
+                if algorithm == "exploreexploit":
+                    stat_tracker[chosen_source] += slice_ownership[i]
+                remaining_query -= slice_ownership[i]
+                result_row = query_result.iloc[i, :].to_frame().T
+                if any(slice_ownership[i] & remaining_query > 0):
+                    additional_data = pd.concat([additional_data, result_row], ignore_index=True)
         # Generate stats
-        stats = {
+        ret = {
+            "data": additional_data,
             "cost": total_cost,
             "sources": sources_cnt
         }
-        print("DT ", algorithm, " complete")
-        return additional_data, stats
+        return ret
 
     def choose_ds(self, algorithm: str, itr: int, stat_tracker, remaining_query: npt.NDArray) -> int:
         if algorithm == "random":
             ds = random.choice(range(self.n))
-            print(algorithm, ds)
             return ds
         elif algorithm == "exploreexploit":
             if itr < self.explore_iters:
                 priority_source = itr % self.n
-                print(algorithm, priority_source)
                 return priority_source
             else:
                 P = np.maximum(stat_tracker / max(1, np.sum(stat_tracker)),
                                np.full(np.shape(stat_tracker), EPSILON_PROB))
-                C_over_P = np.reshape(self.costs.T, (self.n, 1)) / P
-                min_C_over_P = np.amin(C_over_P, axis=0)
-                group_scores = remaining_query * min_C_over_P
+                c_over_p = np.reshape(self.costs.T, (self.n, 1)) / P
+                min_c_over_p = np.amin(c_over_p, axis=0)
+                group_scores = remaining_query * min_c_over_p
                 priority_group = np.argmax(group_scores)
-                priority_source = np.argmin(C_over_P[:, priority_group], axis=0)
-                print(algorithm, priority_source)
+                priority_source = np.argmin(c_over_p[:, priority_group], axis=0)
                 return priority_source
         elif algorithm == "ratiocoll":
             P = np.maximum(stat_tracker / max(1, np.sum(stat_tracker)),
                            np.full(np.shape(stat_tracker), EPSILON_PROB))
-            C_over_P = np.reshape(self.costs.T, (self.n, 1)) / P
-            min_C_over_P = np.amin(C_over_P, axis=0)
-            group_scores = remaining_query * min_C_over_P
+            c_over_p = np.reshape(self.costs.T, (self.n, 1)) / P
+            min_c_over_p = np.amin(c_over_p, axis=0)
+            group_scores = remaining_query * min_c_over_p
             priority_group = np.argmax(group_scores)
-            priority_source = np.argmin(C_over_P[:, priority_group], axis=0)
-            print(algorithm, priority_source)
+            priority_source = np.argmin(c_over_p[:, priority_group], axis=0)
             return priority_source
