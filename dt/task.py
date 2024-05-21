@@ -6,12 +6,13 @@ import numpy.typing as npt
 import pandas as pd
 import typing as tp
 from .source import AbstractSource
+from .utils import *
 
 """
 A task in PLUTUS is defined as an instance of a concrete class that inherits AbstractTask. Several helper functions are
 defined in AbstractTask such that, for most common tasks, defining a task amounts to dispatching the helper functions. 
 
-Data is passed around as dataframes. Slices are passed around as 1-dimensional numpy arrays. Since the pipeline passes
+Data is passed around as dataframes. Slices are passed around as numpy arrays. Since the pipeline passes
 data between database, Dataframe, SystemDS, DT, and the dashboard, the whole pipeline requires recoding data to be
 interpretable for humans, SystemDS, or the DT framework. This is done through several abstract methods defined below. 
 
@@ -22,10 +23,11 @@ If a task implementation deviates from the requirements, PLUTUS may exhibit unde
 class AbstractTask:
     @abstractmethod
     def __init__(self, train_source: AbstractSource, test_source: AbstractSource,
-                 additional_sources: tp.List[AbstractSource]):
+                 additional_sources: tp.List[AbstractSource], y_is_categorical: bool):
         self.initial_train = train_source.get_next_batch(batch_size=None)
         self.test = test_source.get_next_batch(batch_size=None)
         self.additional_sources = additional_sources
+        self. y_is_categorical = y_is_categorical
 
     @abstractmethod
     def clean_raw_data(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -49,11 +51,19 @@ class AbstractTask:
         """
         pass
 
-    def get_train_set(self) -> tp.Union[pd.DataFrame, None]:
+    def get_train_set(self) -> tp.Optional[pd.DataFrame, None]:
         """
         Acquire and return the initial train set as a DataFrame that includes only the X and y variables.
         """
         return self.initial_train
+
+    def get_train_xy(self) -> tp.Tuple[pd.DataFrame, npt.NDArray]:
+        """
+        Return the initial train set split into X (dataframe) and y (1-D ndarray).
+        """
+        if self.initial_train is None:
+            raise ValueError("Missing train set.")
+        return split_df_xy(self.initial_train, self.y_column_name())
 
     def get_test_set(self) -> tp.Union[pd.DataFrame, None]:
         """
@@ -61,7 +71,12 @@ class AbstractTask:
         """
         return self.test
 
-    def get_additional_data(self, source_idx: int, batch_size: int) -> tp.Union[pd.DataFrame, None]:
+    def get_test_xy(self) -> tp.Tuple[pd.DataFrame, npt.NDArray]:
+        if self.test is None:
+            raise ValueError("Missing test set.")
+        return split_df_xy(self.test, self.y_column_name())
+
+    def get_additional_data(self, source_idx: int, batch_size: int) -> tp.Tuple[tp.Optional[pd.DataFrame], int]:
         """
         Return additional data from specified source, or None if no additional data is available.
         """
@@ -70,6 +85,15 @@ class AbstractTask:
             return self.additional_sources[source_idx].get_next_batch(batch_size=batch_size)
         else:
             return None
+
+    def get_additional_data_xy(self, source_idx: int, batch_size: int) \
+            -> tp.Union[tp.Tuple[pd.DataFrame, npt.NDArray, int], tp.Tuple[None, None, int]]:
+        data, cost = self.get_additional_data(source_idx, batch_size)
+        if data is None:
+            return None, None, cost
+        else:
+            x, y = split_df_xy(data, self.y_column_name())
+            return x, y, cost
 
     @abstractmethod
     def recode_for_model(self, dataset: pd.DataFrame) -> pd.DataFrame:
@@ -89,11 +113,30 @@ class AbstractTask:
         pass
 
     @abstractmethod
-    def recode_slice_to_human_readable(self, slice_: npt.NDArray) -> tp.List[str]:
+    def recode_slice_to_human_readable(self, slice_: npt.NDArray) -> npt.NDArray:
         """
         In Sliceline, a slice is represented as a vector of integers. This is not human-interpretable. Recode the slice
-        to a list of str such that it can be read and interpreted.
+        where each row is a human-readable slice with string representation of each slice.
         """
+        pass
+
+    @abstractmethod
+    def recode_slice_to_sql_readable(self, slice_: npt.NDArray) -> tp.List[dict]:
+        """
+        A slice is SQL readable when it is a dictionary mapping from column name to list of (op, val) tuples. The full
+        condition takes form col1 op1 val1 AND col1 op2 val2 AND col2 op3 val3 ...
+        """
+        pass
+
+    @abstractmethod
+    def get_model_name(self) -> str:
+        """
+        return the name of the model that should be used for training;
+        """
+        pass
+
+    @abstractmethod
+    def slice_ownership(self, data: pd.DataFrame, slices: npt.NDArray) -> npt.NDArray:
         pass
 
 
@@ -108,34 +151,54 @@ Inheriting and overloading certain methods in SimpleTask is sufficient for many 
 
 class SimpleTask(AbstractTask):
     @staticmethod
-    def get_categorical_mapping_scheme(possible_values: tp.Set) -> tp.Tuple[tp.List, tp.Dict]:
+    def get_categorical_mapping_scheme(possible_values: tp.Set) -> tp.Tuple[tp.Dict, tp.Dict]:
         """
         Given a set of values that a categorical column can take, maps each possible value to a positive integer,
         starting from 1 up to n. Then, returns a mapping from integer to value, and value to integer.
         """
-        int_to_value_list = list(possible_values)
-        value_to_int_dict = {value: idx for value, idx in enumerate(int_to_value_list)}
+        list_form = list(possible_values)
+        int_to_value_list = {(idx+1): value for idx, value in enumerate(list_form)}
+        value_to_int_dict = {value: idx+1 for idx, value in enumerate(list_form)}
         return int_to_value_list, value_to_int_dict
 
     @staticmethod
-    def get_equi_width_bin_borders(min_value: float, max_value: float, num_bins: int) -> tp.List[float]:
+    def get_equi_width_bin_borders(values: tp.List[float], num_bins: int) -> tp.List[float]:
+        if len(values) <= 0:
+            return []
+        if num_bins <= 0:
+            return []
+        max_value, min_value = max(values), min(values)
         bin_width = (max_value - min_value) / num_bins
         bin_borders = [min_value + i * bin_width for i in range(num_bins + 1)]
+        bin_borders[0] = float('-inf')
+        bin_borders[-1] = float('inf')
         return bin_borders
 
     @staticmethod
     def get_equi_count_bin_borders(values: tp.List[float], num_bins: int) -> tp.List[float]:
-        if len(values) == 0:
+        if len(values) <= 0:
+            return []
+        if num_bins <= 0:
             return []
         values.sort()
         quantiles = [i / num_bins for i in range(1, num_bins)]
-        bin_borders = [np.quantile(values, q) for q in quantiles]
-        return [min(values)] + bin_borders + [max(values)]
+        bin_borders = [np.quantile(values, q, method='averaged_inverted_cdf') for q in quantiles]
+        return [float('-inf')] + bin_borders + [float('inf')]
+
+    class SimpleBinningMethod:
+        def __init__(self, method: str, num_bins: int, borders: tp.Union[int, tp.List[float]] = None):
+            assert (method in ['equi-width', 'equi-count', 'predefined'])
+            assert (num_bins >= 1)
+            assert (method != 'predefined' or borders is not None)
+            assert (borders is None or len(borders) == num_bins + 1)
+            self.method = method
+            self.num_bins = num_bins
+            self.borders = borders
 
     def __init__(self, train_source: AbstractSource, test_source: AbstractSource,
                  additional_sources: tp.List[AbstractSource], numeric_x_columns: tp.Set[str],
                  categorical_x_columns: tp.Set[str], y_column: str, y_is_categorical: bool,
-                 binning_method: tp.Union[str, tp.Dict[tp.List[float]]]):
+                 binning: tp.Dict[str, SimpleBinningMethod]):
         """
         params:
             train_source: An AbstractSource for acquiring initial train set.
@@ -145,9 +208,7 @@ class SimpleTask(AbstractTask):
             categorical_x_columns: A set of column names for categorical X features.
             y_column: Name of y column.
             y_is_categorical: Whether y column is categorical or numeric.
-            binning_method: Either "equi-width", "equi-count", or a list of predefined bin borders, which is a mapping
-                            from numeric column names to list of n+1 monotonically increasing floats that define the
-                            bin borders for the specified column.
+            binning_method: A mapping from numeric x column names to SimpleBinningMethod.
         """
         super().__init__(train_source, test_source, additional_sources)
         # Store all the column names
@@ -159,19 +220,24 @@ class SimpleTask(AbstractTask):
         # Store other parameters
         self.y_is_categorical = y_is_categorical
         # Compute numeric bin borders, which will stay fixed
-        self.binning_method = binning_method
-        if isinstance(binning_method, dict):  # Numeric bin borders were predefined
-            self.bin_borders = binning_method  # Copy predefined numeric bin borders
-        elif binning_method == 'equi-width':
-            self.bin_borders = dict()
-            for col in list(self.numeric_x_columns):
-                min_value = self.initial_train[col].min()
-                max_value = self.initial_train[col].max()
-                self.bin_borders.update({col: self.get_equi_width_bin_borders(min_value, max_value, )})
-        elif binning_method == 'equi-count':
-            pass
-        else:
-            raise ValueError('Unknown binning method.')
+        self.binning = binning
+        self.bin_borders = dict
+        for x in self.numeric_x_columns:
+            x_binning = self.binning[x]
+            if x_binning.method == 'equi-width':
+                borders = self.get_equi_width_bin_borders(self.initial_train[x].tolist(), x_binning.num_bins)
+            elif x_binning.method == 'equi-count':
+                borders = self.get_equi_count_bin_borders(self.initial_train[x].tolist(), x_binning.num_bins)
+            elif x_binning.method == 'predefined':
+                borders = x_binning.borders
+            else:
+                raise ValueError('Unknown binning method.')
+            self.bin_borders.update({x: borders})
+        # Compute and store categorical mapping scheme
+        self.categorical_mappings = dict()
+        for x in self.categorical_x_columns:
+            idx_to_label, label_to_idx = self.get_categorical_mapping_scheme(set(self.initial_train[x].tolist()))
+            self.categorical_mappings.update({x: {'idx_to_label': idx_to_label, 'label_to_idx': label_to_idx}})
 
     def clean_raw_data(self, data: pd.DataFrame) -> pd.DataFrame:
         # Project only the X and y columns
@@ -185,11 +251,14 @@ class SimpleTask(AbstractTask):
         return self.y_column
 
     def recode_for_model(self, dataset: pd.DataFrame) -> pd.DataFrame:
-        # Dummy encode categorical X features
-        df = pd.get_dummies(dataset, columns=list(self.categorical_x_columns))
-        return df
+        # This should dummy-encode, normalize, turn values numeric, etc., as necessary
+        # Python XGBoost has support for categorical features OOTB, so we simply mark those columns as category
+        for x in self.categorical_x_columns:
+            dataset[x] = dataset[x].astype('category')
+        return dataset
 
     def binning_for_sliceline(self, dataset: pd.DataFrame) -> pd.DataFrame:
+        # Bin all numeric features, and also turn categorical features to integers
         pass
 
     def recode_slice_to_human_readable(self, slice_: npt.NDArray) -> tp.List[str]:

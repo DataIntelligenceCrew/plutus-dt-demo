@@ -4,6 +4,7 @@ import pandas as pd
 from typing import Tuple
 from . import const
 
+
 # Splits a dataframe into xs and ys based on the given name of y variable
 def split_df_xy(df: pd.DataFrame, y: str) -> Tuple[pd.DataFrame, npt.NDArray]:
     """
@@ -17,6 +18,7 @@ def split_df_xy(df: pd.DataFrame, y: str) -> Tuple[pd.DataFrame, npt.NDArray]:
     df_y = df[y]
     df_x = df.drop(y, axis=1)
     return df_x, df_y
+
 
 """
 Dataset encoding conversion methods. 
@@ -34,6 +36,7 @@ The following recoding directions are supported:
 2. raw -> train
 3. raw -> binned
 """
+
 
 def recode_db_to_raw(db_data: pd.DataFrame, task: str) -> pd.DataFrame:
     """
@@ -57,6 +60,7 @@ def recode_db_to_raw(db_data: pd.DataFrame, task: str) -> pd.DataFrame:
         df[y_column] = df[y_column].replace(cat_mappings[y_column])
     return df
 
+
 def recode_raw_to_train(raw_data: pd.DataFrame, task: str) -> pd.DataFrame:
     """
     params:
@@ -66,6 +70,7 @@ def recode_raw_to_train(raw_data: pd.DataFrame, task: str) -> pd.DataFrame:
     """
     # Dummy encode specified features
     return pd.get_dummies(raw_data, columns=const.DUMMY_FEATURES[task])
+
 
 def recode_raw_to_binned(raw_data: pd.DataFrame, task: str) -> pd.DataFrame:
     """
@@ -78,9 +83,10 @@ def recode_raw_to_binned(raw_data: pd.DataFrame, task: str) -> pd.DataFrame:
     num_features = const.NUMERIC_FEATURES[task]
     num_bins = const.NUMERIC_BIN_BORDERS[task]
     for num in num_features:
-        binned = pd.cut(raw_data[num], bins = num_bins[num], labels=None)
+        binned = pd.cut(raw_data[num], bins=num_bins[num], labels=None)
         raw_data[num] = binned.cat.codes
     return raw_data
+
 
 def recode_slice_to_df(slices: npt.NDArray, task: str) -> pd.DataFrame:
     """
@@ -116,7 +122,8 @@ def recode_slice_to_df(slices: npt.NDArray, task: str) -> pd.DataFrame:
     print("DEBUG")
     print(slices)
     print(df_slices)
-    return pd.DataFrame(df_slices, columns = categorical_cols + numeric_cols)
+    return pd.DataFrame(df_slices, columns=categorical_cols + numeric_cols)
+
 
 def undersample(dataset: pd.DataFrame, method: str, cnt: int) -> pd.DataFrame:
     if method == "random":
@@ -124,23 +131,44 @@ def undersample(dataset: pd.DataFrame, method: str, cnt: int) -> pd.DataFrame:
             return dataset
         else:
             return dataset.sample(cnt)
+    elif method == "none":
+        return dataset
     else:
-        return None
+        raise ValueError("Unknown undersampling method.")
 
-# Testing methods
-#if __name__ == "__main__":
-#    task = "flights-classify"
-#    raw_data = dbsource.get_query_result(task, 2)
-#    print("Data in raw format:")
-#    print(raw_data)
-#    print()
-#
-#    train_data = recode_raw_to_train(raw_data, task)
-#    print("Data in train format:")
-#    print(train_data)
-#    print()
-#
-#    binned_data = recode_raw_to_binned(raw_data, task)
-#    print("Data in binned format:")
-#    print(binned_data)
-#    print()
+
+def get_loss_vector(
+        model: tp.Union[xgb.XGBRegressor, xgb.XGBClassifier],
+        data_x: pd.DataFrame,
+        data_y: npt.NDArray,
+        loss_name: str
+) -> npt.NDArray:
+    """
+    params:
+        model: Trained XGBoost model.
+        data_x: Train or test data in train encoding.
+        data_y: Train or test data in train encoding.
+        loss_name: Method for computing loss. 'binary' assigns a loss of 1 if incorrect and 0 if correct. 'square'
+                   squares the error between gt and pred
+    returns: A 1D loss vector, where loss is square loss if task is regression, and 1 or 0 if task is classification.
+    """
+    preds = np.ndarray(model.predict(data_x))
+    if loss_name == 'binary':
+        return np.not_equal(preds, data_y).astype(float)
+    elif loss_name == 'square':
+        return (data_y - preds) ** 2
+    else:
+        raise ValueError('Unsupported loss type.')
+
+
+def get_top_level_slice_losses(binned_x: pd.DataFrame, losses: npt.NDArray) -> tp.List[float]:
+    slice_losses = []
+    for col in binned_x.columns:
+        unique_vals = binned_x[col].unique()
+        for val in unique_vals:
+            train_indices = binned_x[binned_x[col] == val].index
+            train_subset_losses = losses[train_indices]
+            if len(train_subset_losses) > 0:
+                slice_losses.append(train_subset_losses.mean())
+    return slice_losses
+

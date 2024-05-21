@@ -4,7 +4,6 @@ import pandas as pd
 import typing as tp
 import psycopg2
 
-
 """
 An abstract class for data sources, which are used to acquire train, test, and additional data. 
 """
@@ -16,9 +15,11 @@ class AbstractSource:
         pass
 
     @abstractmethod
-    def get_next_batch(self, batch_size: tp.Union[int, None]) -> tp.Union[pd.DataFrame, None]:
+    def get_next_batch(self, batch_size: tp.Union[int, None]) -> tp.Tuple[tp.Union[pd.DataFrame, None], int]:
         """
-        Return a batch of data queried directly from some database or file, or None if no fresh tuples remain.
+        Return:
+             batch of data queried directly from some database or file, or None if no fresh tuples remain
+             the cost of querying the batch
         params:
             batch_size: number of tuples to query, or None to query all remaining tuples
         """
@@ -47,6 +48,13 @@ class AbstractSource:
                         For example, the slice [('>', 0), ('<', 10)] represents 'WHERE column > 0 AND column < 10'.
         Returns the total number of fresh tuples in the source that belongs to the slice, or None if it is uncountable.
         """
+        pass
+
+    def slices_count(self, slice_defs: tp.List[dict]) -> tp.List[int]:
+        pass
+
+    @abstractmethod
+    def amortized_cost_per_tuple(self) -> int:
         pass
 
 
@@ -95,9 +103,9 @@ class SimpleDBSource(AbstractSource):
         self.conn.commit()
         self.conn.close()
 
-    def get_next_batch(self, batch_size: tp.Union[int, None]) -> tp.Union[pd.DataFrame, None]:
+    def get_next_batch(self, batch_size: tp.Union[int, None]) -> tp.Tuple[tp.Union[pd.DataFrame, None], int]:
         if not self.has_next():
-            return None
+            return None, 0
         else:
             # Fetch batch of rows from table then convert to DataFrame
             if batch_size is not None:  # Some integer batch size specified
@@ -109,7 +117,7 @@ class SimpleDBSource(AbstractSource):
             self.num_queried += len(rows)
             if not self.has_next():
                 self.select_cur.close()
-            return df
+            return df, len(df)
 
     def has_next(self) -> bool:
         return self.initial_size > self.num_queried
@@ -129,7 +137,27 @@ class SimpleDBSource(AbstractSource):
         query += " TRUE;"
         # Execute query & parse result
         count_cur.execute(query, tuple(values))
-        return count_cur.fetchone()[0]
+        ret = count_cur.fetchone()[0]
+        count_cur.close()
+        return ret
+
+    def slices_count(self, slice_defs: tp.List[dict]) -> tp.List[int]:
+        count_cur = self.conn.cursor()
+        values = []
+        query_parts = []
+        for idx, slice_ in enumerate(slice_defs):
+            condition = ""
+            for column, conditions in slice_.items():
+                for op, val in conditions:
+                    condition += f"{column} {op} %s AND "
+                    values.append(val)
+            condition += "TRUE"
+            query_parts.append(f"COUNT(CASE WHEN {condition} THEN 1 END) AS {idx}")
+        query = f"SELECT {', '.join(query_parts)} FROM {self.table};"
+        count_cur.execute(query, tuple(values))
+        ret = count_cur.fetchone()[0]
+        count_cur.close()
+        return list(ret)
 
     def _total_size(self) -> int:
         """
@@ -139,3 +167,6 @@ class SimpleDBSource(AbstractSource):
         query = f"SELECT COUNT(*) FROM {self.table};"
         count_cur.execute(query)
         return count_cur.fetchone()[0]
+
+    def amortized_cost_per_tuple(self) -> int:
+        return 1

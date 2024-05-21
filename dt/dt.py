@@ -7,6 +7,8 @@ import random
 from . import utils
 from . import dbsource
 from . import const
+from .source import *
+from .task import *
 
 """
 Represents a single instance of the DT problem. 
@@ -15,30 +17,18 @@ Implements the random, Ratiocoll, and EpsilonGreedy algorithms.
 Supports integer-valued CSV files only for the time being. 
 """
 
+EPSILON_PROB = 0.000001
 
 class DT:
-    def __init__(self,
-                 slices: npt.NDArray,
-                 costs: npt.NDArray,
-                 train_x: pd.DataFrame,
-                 explore_scale: float,
-                 gt_stats: npt.NDArray,
-                 task: str):
-        """
-        params
-            sources: A list of CSV filenames
-            costs: A list of floating point cost for each source
-            slices: A list of slices encoded as numpy matrix
-            task: Valid task key string. 
-        """
-        self.n = const.SOURCES[task]['n']  # Number of sources
-        self.costs = np.array(costs)  # costs
-        self.slices = slices  # Slices
-        self.m = len(slices)  # Number of slices
+    def __init__(self, task: AbstractTask, slices: npt.NDArray, explore_scale: float, batch_size: int):
         self.task = task
+        self.sources = task.additional_sources
+        self.n = len(self.sources)
+        self.costs = [source.amortized_cost_per_tuple() for source in self.sources]
+        self.slices = slices
+        self.m = len(slices)
         self.explore_scale = explore_scale
-        self.gt_stats = gt_stats
-        self.train_x = train_x
+        self.batch_size = batch_size
 
     def __repr__(self):
         s = "n: " + str(self.n) + ", m: " + str(self.m) + "\n"
@@ -58,21 +48,22 @@ class DT:
         """
         additional_data = [None] * self.m
         remaining_query = np.copy(query_counts)
-        total_cost = 0.0
+        total_cost = 0
         # Initialize stat tracker
         if algorithm == "ratiocoll":
-            binned_x = utils.recode_raw_to_binned(self.train_x, self.task).to_numpy()
-            stat_tracker = self.gt_stats
+            sql_readable_slices = self.task.recode_slice_to_sql_readable(self.slices)
+            stat_tracker = np.ndarray([np.ndarray(source.slices_count(sql_readable_slices)) for source in self.sources])
         elif algorithm == "exploreexploit":
             stat_tracker = np.zeros((self.n, self.m), dtype=int)
             # Compute the number of exploration iterations
             Q = np.sum(query_counts) * self.explore_scale
-            explore_iters = math.ceil((0.5 * math.pow(Q, 2 / 3)) / const.SOURCES[self.task]['batch'])
+            explore_iters = math.ceil((0.5 * math.pow(Q, 2 / 3)) / self.batch_size)
             # Round up explore_iters to ensure uniform exploration
             self.explore_iters = math.ceil(explore_iters / self.n) * self.n
         elif algorithm == "random":
             stat_tracker = None
-        print("Stats:", stat_tracker)
+        else:
+            raise ValueError("Unsupported algorithm.")
         # Keep track of which sources are chosen
         sources_cnt = [0 for i in range(self.n)]
 
@@ -80,18 +71,20 @@ class DT:
         # Loop while query is not satisfied
         while np.any(remaining_query > 0):
             chosen_source = self.choose_ds(algorithm, itr, stat_tracker, remaining_query)
+            if chosen_source is None:
+                break
             sources_cnt[chosen_source] += 1
             itr += 1
-            # Issue query and recode result to raw
-            query_result = dbsource.get_query_result(self.task, chosen_source)
-            query_result = utils.recode_db_to_raw(query_result, self.task)
+            # Issue query
+            query_result, query_cost = self.task.get_additional_data(chosen_source, self.batch_size)
+            if query_result is None:
+                continue
             # Keep track of stats
             total_cost += self.costs[chosen_source] * len(query_result)
             # Split query result to x, y
-            result_x, _ = utils.split_df_xy(query_result, const.Y_COLUMN[self.task])
-            binned_x = utils.recode_raw_to_binned(result_x, self.task).to_numpy()
+            result_x, _ = utils.split_df_xy(query_result, self.task.y_column_name())
             # slice_ownership[i][j] denotes whether ith tuple belongs to slice j
-            slice_ownership = dbsource.slice_ownership(binned_x, self.slices)
+            slice_ownership = self.task.slice_ownership(result_x, self.slices)
             # Count the frequency of each subgroup in query result
             for i in range(len(result_x)):
                 for j in range(self.m):
@@ -129,7 +122,7 @@ class DT:
                 return priority_source
             else:
                 P = np.maximum(stat_tracker / max(1, np.sum(stat_tracker)),
-                               np.full(np.shape(stat_tracker), const.EPSILON_PROB))
+                               np.full(np.shape(stat_tracker), EPSILON_PROB))
                 C_over_P = np.reshape(self.costs.T, (self.n, 1)) / P
                 min_C_over_P = np.amin(C_over_P, axis=0)
                 group_scores = remaining_query * min_C_over_P
@@ -139,7 +132,7 @@ class DT:
                 return priority_source
         elif algorithm == "ratiocoll":
             P = np.maximum(stat_tracker / max(1, np.sum(stat_tracker)),
-                           np.full(np.shape(stat_tracker), const.EPSILON_PROB))
+                           np.full(np.shape(stat_tracker), EPSILON_PROB))
             C_over_P = np.reshape(self.costs.T, (self.n, 1)) / P
             min_C_over_P = np.amin(C_over_P, axis=0)
             group_scores = remaining_query * min_C_over_P

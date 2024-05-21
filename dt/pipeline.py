@@ -7,6 +7,8 @@ from . import subroutines
 from . import const
 from . import utils
 from . import dt
+from .task import *
+from .source import *
 
 """
 Defines and exposes the API functions to client programs. 
@@ -17,162 +19,111 @@ Recall that the demo pipeline is split into three functions:
 There are also _py and _dml variants of each function. 
 """
 
-def pipeline_train_py(
-    train: pd.DataFrame,
-    test: pd.DataFrame,
-    max_depth: int,
-    task: str
-) -> tp.Tuple[np.ndarray, dict]:
+
+def pipeline_train_py(task: AbstractTask, train: pd.DataFrame, test: pd.DataFrame) -> dict:
     """
     params:
-        train: Training data in "raw" format.
-        test: Test set in "raw" format.
-        max_depth: The maximum depth of slices to be considered for the slice_losses return value. TODO: this does nothing atm
-        task: Valid target task key. 
-    returns:
-        train_losses: 1D array, train set losses. 
-        train_stats: A dictionary to store various statistics about training session. It should at least contain:
-            time_train (float): Time, in seconds, that training took. 
-            time_func (float): Time, in seconds, that this entire function took. 
-            agg_loss (float): Average loss (or accuracy) across all data points. 
-            slice_losses (pd.DataFrame): A dataframe containing all slices up to
-                max_depth in "DT" format, and additional "loss" column which
-                stores average loss (or accuracy) for that slice, and "size"
-                column which stores the size of that slice in train set. 
+        task: A valid instantiation of an AbstractTask subclass.
+    returns a dictionary with the following fields:
+        train_losses (1D ndarray): Train set losses.
+        test_losses (1D ndarray): Test set losses.
+        time (float): Time, in seconds, that this function took.
+        agg_train_loss (float): Average loss (or accuracy) across all train data points.
+        agg_test_loss (float): Average loss (or accuracy) across all test data points.
+        slice_train_losses, slice_test_losses (list of floats): Average loss of each top-level slice in train/test sets.
     """
     time_start = time.time()
     # Convert dataset(s) to train format
-    train = utils.recode_raw_to_train(train, task)
-    test = utils.recode_raw_to_train(test, task)
-    # Split dataset(s) to x, y
-    y = const.Y_COLUMN[task]
-    train_x, train_y = utils.split_df_xy(train, y)
-    test_x, test_y = utils.split_df_xy(test, y)
+    train_x, train_y = split_df_xy(train, task.y_column_name())
+    test_x, test_y = split_df_xy(test, task.y_column_name())
     # Train model
-    model = subroutines.pipeline_train_model(train_x, train_y, task)
-    time_end_train = time.time()
+    model_name = 'xgboost-classify' if task.y_is_categorical else 'xgboost-regress'
+    model = subroutines.pipeline_train_model(train_x, train_y, model_name)
     # Compute losses
-    train_losses = subroutines.get_loss_vector(model, train_x, train_y, task)
-    test_losses = subroutines.get_loss_vector(model, test_x, test_y, task)
-    time_end_func = time.time()
-    # Computer slice losses (train)
-    bucket_train_x = utils.recode_raw_to_binned(train_x, task)
-    slice_train_losses = []
-    for col in bucket_train_x.columns:
-        unique_vals = bucket_train_x[col].unique()
-        for val in unique_vals:
-            train_indices = bucket_train_x[bucket_train_x[col] == val].index
-            print("DEBUG", val, train_indices, train_losses)
-            train_subset_losses = train_losses[train_indices]
-            if len(train_subset_losses) > 0:
-                slice_train_losses.append(train_subset_losses.mean())
-    # Computer slice losses (test)
-    bucket_test_x = utils.recode_raw_to_binned(test_x, task)
-    slice_test_losses = []
-    for col in bucket_test_x.columns:
-        unique_vals = bucket_test_x[col].unique()
-        for val in unique_vals:
-            test_indices = bucket_test_x[bucket_test_x[col] == val].index
-            test_subset_losses = test_losses[test_indices]
-            if len(test_subset_losses) > 0:
-                slice_test_losses.append(test_subset_losses.mean())
-    # Construct stats dictionary
-    train_stats = {
-        "time_train": time_end_train - time_start,
-        "time_func": time_end_func - time_start,
-        "agg_train_loss": np.mean(train_losses),
-        "agg_test_loss": np.mean(test_losses),
-        "slice_train_losses": sorted(slice_train_losses, reverse=True),
-        "slice_test_losses": sorted(slice_test_losses, reverse=True)
+    loss_name = 'binary' if task.y_is_categorical else 'square'
+    train_losses = subroutines.get_loss_vector(model, train_x, train_y, loss_name)
+    test_losses = subroutines.get_loss_vector(model, test_x, test_y, loss_name)
+    # Compute slice losses
+    slice_train_losses = subroutines.get_top_level_slice_losses(task.binning_for_sliceline(train_x), train_losses)
+    slice_test_losses = subroutines.get_top_level_slice_losses(task.binning_for_sliceline(test_x), test_losses)
+    # Construct the result dictionary
+    time_end = time.time()
+    result = {
+        'train_losses': train_losses,
+        'test_losses': test_losses,
+        'time': time_end - time_start,
+        'agg_train_loss': np.mean(train_losses),
+        'agg_test_loss': np.mean(test_losses),
+        'slice_train_losses': sorted(slice_train_losses, reverse=True),
+        'slice_test_losses': sorted(slice_test_losses, reverse=True)
     }
-    return train_losses, test_losses, train_stats
+    return result
+
 
 def pipeline_sliceline_py(
+    task: AbstractTask,
     train: pd.DataFrame,
     train_losses: npt.NDArray[np.float64],
     alpha: float,
     max_l: int,
     min_sup: int,
-    k: int,
-    task: str
-) -> tp.Tuple[npt.NDArray, dict]:
+    k: int
+) -> dict:
     """
     params:
+        task: A valid instantiation of an AbstractTask subclass.
         train: Train set in "raw" format. 
         train_losses: Train losses as 1D array. 
         alpha, max_l, min_sup, k: Standard sliceline parameters. 
-    returns:
-        slices: Top slices as numpy matrix, allowing for None values, ordered 
-            by score from highest to kth highest. 
-        sliceline_stats: A dictionary to store various statistics about the
-            run of sliceline. It should contain the following key-value pairs:
-            time_sliceline (float): Time, in seconds, that sliceline took. 
-            time_func (float): Time, in seconds, that this entire function took. 
-            scores: list of scores of slices (in same order)
-            sizes: list of sizes of slices (in same order)
-            errors: list of average errors of slices (in same order)
+    returns a dictionary with the following fields:
+        slices: Top slices as numpy matrix, allowing for None values, ordered descending.
+        time (float): Time, in seconds, that this function took.
+        scores: list of scores of slices (in same order)
+        sizes: list of sizes of slices (in same order)
+        errors: list of average errors of slices (in same order)
     """
     time_start = time.time()
-    binned = utils.recode_raw_to_binned(train, task)
-    binned_x = binned.drop(const.Y_COLUMN[task], axis=1)
-    time_start_sliceline = time.time()
+    binned_x = task.binning_for_sliceline(train).drop(task.y_column_name(), axis=1)
     slices, slices_stats = subroutines.get_slices(binned_x, train_losses, alpha, k, max_l, min_sup)
-    time_end_sliceline = time.time()
-    sliceline_stats = {
-        "time_sliceline": time_end_sliceline - time_start_sliceline,
-        "time_func": time_end_sliceline - time_start,
+    time_end = time.time()
+    result = {
+        "slices": slices,
+        "time": time_end - time_start,
         "scores": [slice_['slice_score'] for slice_ in slices_stats],
         "sizes": [slice_['slice_size'] for slice_ in slices_stats],
         "errors": [slice_['slice_average_error'] for slice_ in slices_stats]
     }
-    return slices, sliceline_stats
+    return result
+
 
 def pipeline_dt_py(
+    task: AbstractTask,
     slices: npt.NDArray,
-    costs: npt.NDArray,
     query_counts: npt.NDArray,
-    undersample_methods: tp.Union[str, tp.List[str]],
-    train: pd.DataFrame,
+    undersample_methods: str,
     algos: tp.List[str],
     explore_scale: float,
-    gt_stats: npt.NDArray,
-    task: str
 ) -> dict:
     """
-    params:
-        sources: A list of DBSource objects that contain data sources metadata. 
-        slices: Top k slices encoded as ndarray allowing None values. 
-        costs: Cost model for each source. 
-        query_counts: Query count for each slice. 
-        undersample_methods: Either "random", "medoids", or "none". Used to 
-            undersample majority groups' excess data points. I{
-            time: 
-        }f List, then
-            the undersampling methods are used one at a time. 
-        train: Current train set (both X and y) in "train" format. 
-        algos: A list of algorithms to run one after another. Valid values are:
-            "random", "ratiocoll", "exploreexploit". 
-        task: Valid task key. 
+    params;
+        task: A valid instantiation of an AbstractTask subclass.
+        slices: TOp k slices encoded as ndarray allowing None values.
+        query_counts: Query count for each slice.
+        undersample_methods: Currently only supports "random" and "none", used to undersample excess data.
+        algos: A list of algorithms to run one after another. Supports "random", "ratiocoll", "exploreexploit".
+        explore_scale: Parameter alpha to adjust exploration rate for ExploreExploit.
+        gt_stats: Ground truth statistics for the task.
     returns:
-        A dictionary that maps from algorithm name to its results. 
-        A valid key is a valid algorithm name, as explained above. 
-        A valid value is a tuple (aug_x, aug_y, dt_stats): (pd.DataFrame, 
-        pd.DataFrame, dict). aug_x and aug_y are train sets augmented with the
-        additional data found. It MUST be shuffled. 
-        dt_stats is a dictionary to store various statistics about the run of
-        the DT algorithm specified in the key. It should contain the following
-        key-value pairs:
-            time (float): Time, in seconds, that DT took. 
-            iters (int): The number of iterations that was required. 
-            cost (float): The total cost required to satisfy query. 
-            selected_sources (npt.NDArray): A sequence of sources that the DT
-                algorithm chose. 
-            selected_slices (npt.NDArray): A sequence of slice indices (based
-                on the input)
+        A dictionary mapping from algorithm to its result.
+        A valid value (result) is itself a dictionary with the following fields:
+            time: Time, in seconds, that the algorithm took.
+            iters: Number of iterations that the algorithm took.
+            cost: Total cost required to satisfy query.
+            selected_sources: A sequence of sources that the algorithm chose.
+            selected_slices: A sequence of slice indices (based on the input).
     """
     result = dict()
-    train_x, train_y = utils.split_df_xy(train, const.Y_COLUMN[task])
-    dt_ = dt.DT(slices, costs, train_x, explore_scale, gt_stats, task)
+    dt_ = dt.DT(task, slices, explore_scale, 10)
     if type(undersample_methods) is str:
         undersample_methods = [undersample_methods for _ in range(len(algos))]
     for idx, algo in enumerate(algos):
@@ -185,12 +136,13 @@ def pipeline_dt_py(
         result.update({algo: (combined_data, dt_stats)})
     return result
 
+
 def pipeline_train_dml(
-    train_x: pd.DataFrame,
-    train_y: npt.NDArray[np.float64],
-    test_x: pd.DataFrame,
-    test_y: npt.NDArray[np.float64],
-    max_depth: int
+        train_x: pd.DataFrame,
+        train_y: npt.NDArray[np.float64],
+        test_x: pd.DataFrame,
+        test_y: npt.NDArray[np.float64],
+        max_depth: int
 ) -> tp.Tuple[np.ndarray, dict]:
     """
     params:
@@ -214,6 +166,7 @@ def pipeline_train_dml(
     # TODO: DML Implementation & call Python binding
     return train_losses, train_stats
 
+
 def pipeline_sliceline_dml(
         train_sl: pd.DataFrame,
         train_losses: npt.NDArray[np.float64],
@@ -236,7 +189,7 @@ def pipeline_sliceline_dml(
             time_sliceline (float): Time, in seconds, that sliceline took. 
             time_func (float): Time, in seconds, that this entire function took. 
     """
-    
+
     time_start = time.time()
     binned = utils.recode_raw_to_binned(train_sl.copy(), task) + 1
     binned_x = binned.drop(const.Y_COLUMN[task], axis=1)
@@ -247,7 +200,7 @@ def pipeline_sliceline_dml(
 
     time_start_sliceline = time.time()
     slices, slices_stats = subroutines.get_slices_dml(binned_x, train_losses, alpha, k, max_l, min_sup)
-    
+
     time_end_sliceline = time.time()
     sliceline_stats = {
         "time_sliceline": time_end_sliceline - time_start_sliceline,
@@ -256,45 +209,5 @@ def pipeline_sliceline_dml(
         "sizes": [slice_[3] for slice_ in slices_stats],
         "errors": [slice_[1] for slice_ in slices_stats]
     }
-    
-    return slices, sliceline_stats
 
-def pipeline_dt_dml(
-    groups: pd.DataFrame,
-    costs: npt.NDArray,
-    query_counts: npt.NDArray,
-    undersample_method: str,
-    train_x: pd.DataFrame,
-    train_y: np.ndarray,
-    algos: tp.List[str],
-) -> dict:
-    """
-    params:
-        sources: A list of DBSource objects that contain data sources metadata. 
-        groups: A dataframe in "DT" format of the top slices. 
-        costs: Cost model for each source. 
-        query_counts: Query count for each slice. 
-        undersample_method: Either "random", "medoids", or "none". Used to 
-            undersample majority groups' excess data points. 
-        train_x, train_y: Current train set in "raw" format. 
-        algos: A list of algorithms to run one after another. Valid values are:
-            "random", "ratiocoll", "exploreexploit". 
-    returns:
-        A dictionary that maps from algorithm name to its results. 
-        A valid key is a valid algorithm name, as explained above. 
-        A valid value is a tuple (aug_x, aug_y, dt_stats): (pd.DataFrame, 
-        pd.DataFrame, dict). aug_x and aug_y are train sets augmented with the
-        additional data found. It MUST be shuffled. 
-        dt_stats is a dictionary to store various statistics about the run of
-        the DT algorithm specified in the key. It should contain the following
-        key-value pairs:
-            time (float): Time, in seconds, that DT took. 
-            iters (int): The number of iterations that was required. 
-            cost (float): The total cost required to satisfy query. 
-            selected_sources (npt.NDArray): A sequence of sources that the DT
-                algorithm chose. 
-            selected_slices (npt.NDArray): A sequence of slice indices (based
-                on the input)
-    """
-    # TODO: DML Implementation & call Python binding
-    return dt_results
+    return slices, sliceline_stats
