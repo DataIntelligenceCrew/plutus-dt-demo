@@ -1,10 +1,9 @@
 from dash import Dash, html, dcc, Input, Output, callback, State, dash_table
 from dash.exceptions import PreventUpdate
 from plotly.subplots import make_subplots
-import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
-import dt
+from demo import dt
 import numpy as np
 
 app = Dash(__name__)
@@ -628,7 +627,7 @@ def run_dt(n_clicks, task, data, algos):
   explore_scale = len(train) / sum(slices_stats['sizes'])
   costs = dt.const.SOURCES[task]['costs']
   # Run DT & update
-  dt_result = dt.pipeline.pipeline_dt_py(slices, costs, query_counts, "random", train, algos, explore_scale, sources_stats, task)
+  dt_result = demo.dt.pipeline.pipeline_dt_py(slices, costs, query_counts, "random", train, algos, explore_scale, sources_stats, task)
   global_data[task]['dt_result'] = dt_result
   # Aggregate cost visualization
   #stats_vis_children = []
@@ -682,7 +681,7 @@ def run_sliceline(n_clicks, alpha, k, max_l, min_sup, task):
   # If current stage is sliceline, reload the most recent slice result
   train_sliceline = global_data[task]['test']
   train_losses = global_data[task]['test_losses']
-  slices, slices_stats = dt.pipeline.pipeline_sliceline_dml(train_sliceline, train_losses, alpha, max_l, min_sup, k, task)
+  slices, slices_stats = demo.dt.pipeline.pipeline_sliceline_dml(train_sliceline, train_losses, alpha, max_l, min_sup, k, task)
   # Update slices
   global_data[task]['slices'] = slices
   global_data[task]['sliceline_stats'] = slices_stats
@@ -690,7 +689,7 @@ def run_sliceline(n_clicks, alpha, k, max_l, min_sup, task):
   print("DEBUG LINE")
   print(slices)
   print(task)
-  slices_df = dt.utils.recode_slice_to_df(slices, task)
+  slices_df = demo.dt.utils.recode_slice_to_df(slices, task)
   # Add slice-related info to slices
   slices_df.insert(0, "sizes", slices_stats["sizes"])
   slices_df.insert(0, "errors", slices_stats["errors"])
@@ -750,7 +749,7 @@ def run_model(n_clicks, task):
   train = global_data[task]['train']
   test = global_data[task]['test']
   # Run pipeline function
-  train_losses, test_losses, train_stats = dt.pipeline.pipeline_train_py(train, test, 1, task)
+  train_losses, test_losses, train_stats = demo.dt.pipeline.pipeline_train_py(train, test, 1, task)
   global_data[task]['train_losses'] = train_losses
   global_data[task]['test_losses'] = test_losses
   # Append new aggregate accuracies/losses

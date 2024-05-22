@@ -66,7 +66,7 @@ It cannot handle NULL values in tables, and will have undefined behavior if the 
 
 class SimpleDBSource(AbstractSource):
     @classmethod
-    def new_from_config(config: dict):
+    def new_from_config(cls, config: dict):
         """
         params:
             config: A dictionary mapping from parameter name to parameter value. Parameter names must include conn_str,

@@ -1,0 +1,48 @@
+{
+  "conn_str": "dbname=dtdemo user=jchang38 host=5432",
+  "train_table": "fc-train",
+  "test_table": "fc-test",
+  "ext_tables": ["fc-ext1", "fc-ext2", "fc-ext3", "fc-ext4", "fc-ext5"],
+  "numeric_x": ["month", "day", "weekday", "distance", "origin_latitude", "origin_longitude", "dest_latitude", "dest_longitude"],
+  "categorical_x": ["carrier_mkt", "carrier_op", "origin_state", "dest_state"],
+  "y": "arrival_code",
+  "y_is_categorical": true,
+  "binning": {
+    "year": {
+      "method": "equi-width",
+      "num_bins": 6
+    },
+    "month": {
+      "method": "equi-width",
+      "num_bins": 6
+    },
+    "day": {
+      "method": "equi-count",
+      "num_bins": 6
+    },
+    "weekday": {
+      "method": "equi-width",
+      "num_bins": 7
+    },
+    "distance": {
+      "method": "equi-count",
+      "num_bins": 8
+    },
+    "origin_latitude": {
+      "method": "equi-count",
+      "num_bins": 8
+    },
+    "origin_longitude": {
+      "method": "equi-count",
+      "num_bins": 8
+    },
+    "dest_latitude": {
+      "method": "equi-count",
+      "num_bins": 8
+    },
+    "dest_longitude": {
+      "method": "equi-count",
+      "num_bins": 8
+    }
+  }
+}

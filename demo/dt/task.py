@@ -5,7 +5,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import typing as tp
-from .source import AbstractSource
+from .source import *
 from .utils import *
 
 """
@@ -49,6 +49,10 @@ class AbstractTask:
         """
         Return the name of the y_column.
         """
+        pass
+
+    @abstractmethod
+    def all_column_names(self) -> tp.Set[str]:
         pass
 
     def get_train_set(self) -> tp.Optional[pd.DataFrame, None]:
@@ -185,20 +189,46 @@ class SimpleTask(AbstractTask):
         bin_borders = [np.quantile(values, q, method='averaged_inverted_cdf') for q in quantiles]
         return [float('-inf')] + bin_borders + [float('inf')]
 
-    class SimpleBinningMethod:
-        def __init__(self, method: str, num_bins: int, borders: tp.Union[int, tp.List[float]] = None):
-            assert (method in ['equi-width', 'equi-count', 'predefined'])
-            assert (num_bins >= 1)
-            assert (method != 'predefined' or borders is not None)
-            assert (borders is None or len(borders) == num_bins + 1)
-            self.method = method
-            self.num_bins = num_bins
-            self.borders = borders
+    @staticmethod
+    def new_from_config(cls, config: dict):
+        """
+        config: A dictionary containing all config parameters. Must follow specific schema. Example:
+        {
+            'conn_str': 'libpq connection string...',
+            'train_table': 'initial train set table name',
+            'test_table': 'initial test set table name',
+            'ext_tables': [],  // list of table names for additional data
+            'numeric_x': [], // list of numeric x column names
+            'categorical_x': [], // list of categorical x column names
+            'y': str, // y column name
+            'y_is_categorical': bool, // whether y column is a categorical column or a numeric column
+            'binning': { // mapping from all numeric x column names to a binning method
+                'col1': { 'method': 'equi-width', 'num_bins': 10 },
+                'col2': { 'method': 'equi-count', 'num_bins': 5 },
+                'col3': { 'method': 'predefined', 'num_bins': 3, 'borders': [-inf, 0.5, 1.5, inf] }
+            }
+        }
+        """
+        all_columns = config['numeric_x'] + config['categorical_x'] + [config['y']]
+        train_source = SimpleDBSource.new_from_config({
+            'conn_str': config['conn_str'], 'table': config['train_table'], 'columns': all_columns})
+        test_source = SimpleDBSource.new_from_config({
+            'conn_str': config['conn_str'], 'table': config['test_table'], 'columns': all_columns})
+        additional_sources = [
+            SimpleDBSource.new_from_config({
+                'conn_str': config['conn_str'], 'table': config['ext_tables'][idx], 'columns': all_columns
+            }) for idx in range(config['ext_tables'])]
+        numeric_x_columns = set(config['numeric_x'])
+        categorical_x_columns = set(config['categorical_x'])
+        y_column = config['y']
+        y_is_categorical = config['y_is_categorical']
+        binning_method = config['binning_method']
+        return cls.__init__(train_source, test_source, additional_sources, numeric_x_columns, categorical_x_columns,
+                            y_column, y_is_categorical, binning_method)
 
     def __init__(self, train_source: AbstractSource, test_source: AbstractSource,
                  additional_sources: tp.List[AbstractSource], numeric_x_columns: tp.Set[str],
-                 categorical_x_columns: tp.Set[str], y_column: str, y_is_categorical: bool,
-                 binning: tp.Dict[str, SimpleBinningMethod]):
+                 categorical_x_columns: tp.Set[str], y_column: str, y_is_categorical: bool, binning: dict):
         """
         params:
             train_source: An AbstractSource for acquiring initial train set.
@@ -210,7 +240,7 @@ class SimpleTask(AbstractTask):
             y_is_categorical: Whether y column is categorical or numeric.
             binning_method: A mapping from numeric x column names to SimpleBinningMethod.
         """
-        super().__init__(train_source, test_source, additional_sources)
+        super().__init__(train_source, test_source, additional_sources, y_is_categorical)
         # Store all the column names
         self.numeric_x_columns = numeric_x_columns
         self.categorical_x_columns = categorical_x_columns
@@ -250,6 +280,9 @@ class SimpleTask(AbstractTask):
     def y_column_name(self) -> str:
         return self.y_column
 
+    def all_column_names(self) -> tp.Set[str]:
+        return self.all_columns
+
     def recode_for_model(self, dataset: pd.DataFrame) -> pd.DataFrame:
         # This should dummy-encode, normalize, turn values numeric, etc., as necessary
         # Python XGBoost has support for categorical features OOTB, so we simply mark those columns as category
@@ -263,3 +296,4 @@ class SimpleTask(AbstractTask):
 
     def recode_slice_to_human_readable(self, slice_: npt.NDArray) -> tp.List[str]:
         pass
+
