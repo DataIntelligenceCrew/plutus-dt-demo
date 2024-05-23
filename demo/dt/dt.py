@@ -1,4 +1,7 @@
 import random
+
+import math
+
 from . import utils
 from .task import *
 
@@ -38,7 +41,7 @@ class DT:
                 in raw format.
             2. DT stats dictionary. 
         """
-        additional_data = pd.DataFrame(columns=list(self.task.all_column_names()))
+        additional_data = pd.DataFrame(columns=self.task.all_column_names())
         remaining_query = np.copy(query_counts)
         total_cost = 0
         # Initialize stat tracker
