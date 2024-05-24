@@ -1,0 +1,44 @@
+{
+  "conn_str": "dbname=dtdemo user=jchang38",
+  "train_table": "housing",
+  "test_table": "housing0",
+  "ext_tables": ["housing1", "housing2", "housing3", "housing4"],
+  "numeric_x": ["longitude", "latitude", "housing_median_age", "total_rooms", "total_bedrooms", "population", "households", "median_income"],
+  "categorical_x": [],
+  "y": "median_house_value",
+  "y_is_categorical": false,
+  "binning": {
+    "longitude": {
+      "method": "equi-count",
+      "num_bins": 5
+    },
+    "latitude": {
+      "method": "equi-count",
+      "num_bins": 5
+    },
+    "housing_median_age": {
+      "method": "equi-count",
+      "num_bins": 5
+    },
+    "total_rooms": {
+      "method": "equi-count",
+      "num_bins": 5
+    },
+    "total_bedrooms": {
+      "method": "equi-count",
+      "num_bins": 5
+    },
+    "population": {
+      "method": "equi-count",
+      "num_bins": 5
+    },
+    "households": {
+      "method": "equi-count",
+      "num_bins": 5
+    },
+    "median_income": {
+      "method": "equi-count",
+      "num_bins": 5
+    }
+  }
+}

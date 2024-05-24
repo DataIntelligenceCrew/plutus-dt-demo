@@ -6,7 +6,7 @@ import xgboost as xgb
 
 
 # Splits a dataframe into xs and ys based on the given name of y variable
-def split_df_xy(df: pd.DataFrame, y: str) -> Tuple[pd.DataFrame, npt.NDArray]:
+def split_df_xy(df: pd.DataFrame, y: str) -> tp.Tuple[pd.DataFrame, npt.NDArray]:
     """
     params:
         df: A dataset in any encoding. 

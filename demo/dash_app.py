@@ -1,10 +1,13 @@
+import json
+import os
+
 from dash import Dash, html, Input, Output, callback, State, dash_table
 from dash.exceptions import PreventUpdate
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
-from demo import dt
-from .layout import get_layout
-from .dash_data import *
+from dt import *
+from dash_data import *
+from layout import *
 
 app = Dash(__name__)
 

@@ -1,5 +1,5 @@
 {
-  "conn_str": "dbname=dtdemo user=jchang38 host=5432",
+  "conn_str": "dbname=dtdemo user=jchang38",
   "train_table": "fc-train",
   "test_table": "fc-test",
   "ext_tables": ["fc-ext1", "fc-ext2", "fc-ext3", "fc-ext4", "fc-ext5"],

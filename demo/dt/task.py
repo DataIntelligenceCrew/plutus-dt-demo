@@ -51,7 +51,7 @@ class AbstractTask:
     def all_column_names(self) -> tp.List[str]:
         pass
 
-    def get_train_set(self) -> tp.Optional[pd.DataFrame, None]:
+    def get_train_set(self) -> tp.Optional[pd.DataFrame]:
         """
         Acquire and return the initial train set as a DataFrame that includes only the X and y variables.
         """
@@ -65,7 +65,7 @@ class AbstractTask:
             raise ValueError("Missing train set.")
         return split_df_xy(self.initial_train, self.y_column_name())
 
-    def get_test_set(self) -> tp.Union[pd.DataFrame, None]:
+    def get_test_set(self) -> tp.Optional[pd.DataFrame]:
         """
         Acquire and return the initial test set as a DataFrame that includes only the X and y variables.
         """
