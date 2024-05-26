@@ -4,7 +4,7 @@ from dash import *
 def get_layout() -> html.Div:
     layout = html.Div(
         children=[
-            html.Link(rel='stylesheet', herf='styles.css'),
+            html.Link(rel='stylesheet', href='styles.css'),
             get_title_bar(),
             get_container()
         ]
@@ -98,11 +98,11 @@ def get_vis_dt() -> html.Div:
 
 
 def get_vis_model_data_choice() -> html.Div:
-    data_choice = html.Div(
+    data_choice = html.Div([
         html.H3('① Choose task & train model'),
         get_vis_model_data_choice_radio(),
         get_vis_model_data_choice_run_button()
-    )
+    ])
     return data_choice
 
 
@@ -169,7 +169,7 @@ def get_vis_model_data_choice_run_button() -> html.Div:
 def get_vis_model_performance() -> html.Div:
     model_performance = html.Div(
         id='vis-model-performance',
-        childre=[
+        children=[
             html.H3('Model performance'),
             get_vis_model_performance_per_iteration(),
             get_vis_model_performance_per_slice(),

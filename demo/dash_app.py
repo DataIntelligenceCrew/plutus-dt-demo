@@ -326,7 +326,7 @@ def get_agg_accuracy_graph(task_key: str):
 
 if __name__ == '__main__':
     # Preloading datasets
-    global_data = get_dashdata_from_configs('configs')
+    global_data = get_dashdata_from_configs('configs-active')
 
     # Start Dash app
-    app.run(debug=True)
+    app.run_server(host='0.0.0.0', port=8050, debug=True)

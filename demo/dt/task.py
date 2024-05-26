@@ -216,14 +216,14 @@ class SimpleTask(AbstractTask):
             'conn_str': config['conn_str'], 'table': config['test_table'], 'columns': all_columns})
         additional_sources = [
             SimpleDBSource.new_from_config({
-                'conn_str': config['conn_str'], 'table': config['ext_tables'][idx], 'columns': all_columns
-            }) for idx in range(config['ext_tables'])]
+                'conn_str': config['conn_str'], 'table': table_name, 'columns': all_columns
+            }) for table_name in config['ext_tables']]
         numeric_x_columns = set(config['numeric_x'])
         categorical_x_columns = set(config['categorical_x'])
         y_column = config['y']
         columns = list(numeric_x_columns) + list(categorical_x_columns) + [y_column]
         y_is_categorical = config['y_is_categorical']
-        binning_method = config['binning_method']
+        binning_method = config['binning']
         return SimpleTask(train_source, test_source, additional_sources, columns, numeric_x_columns,
                           categorical_x_columns, y_column, y_is_categorical, binning_method)
 
@@ -257,12 +257,12 @@ class SimpleTask(AbstractTask):
         self.bin_borders = dict()
         for x in self.numeric_x_columns:
             x_binning = self.binning[x]
-            if x_binning.method == 'equi-width':
-                borders = self.get_equi_width_bin_borders(self.initial_train[x].tolist(), x_binning.num_bins)
-            elif x_binning.method == 'equi-count':
-                borders = self.get_equi_count_bin_borders(self.initial_train[x].tolist(), x_binning.num_bins)
-            elif x_binning.method == 'predefined':
-                borders = x_binning.borders
+            if x_binning['method'] == 'equi-width':
+                borders = self.get_equi_width_bin_borders(self.initial_train[x].tolist(), x_binning['num_bins'])
+            elif x_binning['method'] == 'equi-count':
+                borders = self.get_equi_count_bin_borders(self.initial_train[x].tolist(), x_binning['num_bins'])
+            elif x_binning['method'] == 'predefined':
+                borders = x_binning['borders']
             else:
                 raise ValueError('Unknown binning method.')
             self.bin_borders.update({x: borders})
