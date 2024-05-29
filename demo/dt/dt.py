@@ -47,7 +47,7 @@ class DT:
         # Initialize stat tracker
         if algorithm == "ratiocoll":
             sql_readable_slices = self.task.recode_slice_to_sql_readable(self.slices)
-            stat_tracker = np.ndarray([np.ndarray(source.slices_count(sql_readable_slices)) for source in self.sources])
+            stat_tracker = [source.slices_count(sql_readable_slices) for source in self.sources]
         elif algorithm == "exploreexploit":
             stat_tracker = np.zeros((self.n, self.m), dtype=int)
             # Compute the number of exploration iterations
@@ -80,6 +80,7 @@ class DT:
             result_x, _ = utils.split_df_xy(query_result, self.task.y_column_name())
             # slice_ownership[i][j] denotes whether ith tuple belongs to slice j
             slice_ownership = self.task.slice_ownership(result_x, self.slices)
+            print("slice_ownership\n", slice_ownership)
             # Count the frequency of each subgroup in query result
             for i in range(len(result_x)):
                 if algorithm == "exploreexploit":
@@ -107,7 +108,7 @@ class DT:
             else:
                 P = np.maximum(stat_tracker / max(1, np.sum(stat_tracker)),
                                np.full(np.shape(stat_tracker), EPSILON_PROB))
-                c_over_p = np.reshape(self.costs.T, (self.n, 1)) / P
+                c_over_p = np.reshape(self.costs, (self.n, 1)) / P
                 min_c_over_p = np.amin(c_over_p, axis=0)
                 group_scores = remaining_query * min_c_over_p
                 priority_group = np.argmax(group_scores)
@@ -116,7 +117,7 @@ class DT:
         elif algorithm == "ratiocoll":
             P = np.maximum(stat_tracker / max(1, np.sum(stat_tracker)),
                            np.full(np.shape(stat_tracker), EPSILON_PROB))
-            c_over_p = np.reshape(self.costs.T, (self.n, 1)) / P
+            c_over_p = np.reshape(self.costs, (self.n, 1)) / P
             min_c_over_p = np.amin(c_over_p, axis=0)
             group_scores = remaining_query * min_c_over_p
             priority_group = np.argmax(group_scores)

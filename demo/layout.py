@@ -1,12 +1,12 @@
 from dash import *
 
 
-def get_layout() -> html.Div:
+def get_layout(global_data: dict) -> html.Div:
     layout = html.Div(
         children=[
             html.Link(rel='stylesheet', href='styles.css'),
             get_title_bar(),
-            get_container()
+            get_container(global_data)
         ]
     )
     return layout
@@ -20,11 +20,11 @@ def get_title_bar() -> html.Div:
     return title_bar
 
 
-def get_container() -> html.Div:
+def get_container(global_data: dict) -> html.Div:
     container = html.Div(
         id='vis-container',
         children=[
-            get_vis_model(),
+            get_vis_model(global_data),
             get_vis_sliceline(),
             get_vis_dt()
         ]
@@ -32,12 +32,12 @@ def get_container() -> html.Div:
     return container
 
 
-def get_vis_model() -> html.Div:
+def get_vis_model(global_data: dict) -> html.Div:
     model = html.Div(
         id='vis-model',
         children=[
             html.H2('Model Training'),
-            get_vis_model_data_choice(),
+            get_vis_model_data_choice(global_data),
             get_vis_model_performance(),
         ]
     )
@@ -97,50 +97,36 @@ def get_vis_dt() -> html.Div:
     return dt
 
 
-def get_vis_model_data_choice() -> html.Div:
+def get_vis_model_data_choice(global_data: dict) -> html.Div:
     data_choice = html.Div([
         html.H3('① Choose task & train model'),
-        get_vis_model_data_choice_radio(),
+        get_vis_model_data_choice_radio(global_data),
         get_vis_model_data_choice_run_button()
     ])
     return data_choice
 
 
-def get_vis_model_data_choice_radio() -> dcc.RadioItems:
+def get_vis_model_data_choice_radio(global_data: dict) -> dcc.RadioItems:
+    options = []
+    for task_key, dash_data in global_data.items():
+        option = {
+            "label": html.Span(
+                children=[
+                    html.Span(dash_data.task.name),
+                    html.Span(
+                        className='tooltip',
+                        children=['(?)',
+                                  html.Span(className='tooltiptext',
+                                            children=dash_data.task.description)]
+                    )
+                ]
+            ),
+            "value": task_key
+        }
+        options.append(option)
     radio = dcc.RadioItems(
         id='vis-model-datachoice-radio',
-        options=[
-            {
-                "label": html.Span(
-                    children=[
-                        html.Span("Flights arrival delay regression"),
-                        html.Span(
-                            className="tooltip",
-                            children=['(?)',
-                                      html.Span(className="tooltiptext",
-                                                children="US Department of Transport airline on-time performance "
-                                                         "delay measured by the nearest minute.")]
-                        )
-                    ]
-                ),
-                "value": "flights-regress"
-            },
-            {
-                "label": html.Span(
-                    children=[
-                        html.Span("Flights arrival status classification"),
-                        html.Span(
-                            className="tooltip",
-                            children=['(?)',
-                                      html.Span(className="tooltiptext",
-                                                children="US Department of Transport airline arrival code "
-                                                         "classification: on-time, delayed, or cancelled.")]
-                        )
-                    ]
-                ),
-                "value": "flights-classify"
-            }
-        ]
+        options=options
     )
     return radio
 

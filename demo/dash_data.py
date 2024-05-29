@@ -34,6 +34,6 @@ class DashData:
         self.counts = None
         self.sources_stats = None
         self.dt_result = None
-        self.train = None
-        self.test = None
+        self.train = task.initial_train
+        self.test = task.test
         self.task = task

@@ -19,11 +19,13 @@ If a task implementation deviates from the requirements, PLUTUS may exhibit unde
 class AbstractTask:
     @abstractmethod
     def __init__(self, train_source: AbstractSource, test_source: AbstractSource,
-                 additional_sources: tp.List[AbstractSource], y_is_categorical: bool):
+                 additional_sources: tp.List[AbstractSource], y_is_categorical: bool, name: str, description: str):
         self.initial_train, _ = train_source.get_next_batch(batch_size=None)
         self.test, _ = test_source.get_next_batch(batch_size=None)
         self.additional_sources = additional_sources
         self.y_is_categorical = y_is_categorical
+        self.name = name
+        self.description = description
 
     @abstractmethod
     def clean_raw_data(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -175,7 +177,7 @@ class SimpleTask(AbstractTask):
             return []
         values.sort()
         quantiles = [i / num_bins for i in range(1, num_bins)]
-        bin_borders = [np.quantile(values, q, method='averaged_inverted_cdf') for q in quantiles]
+        bin_borders = [np.quantile(values, q) for q in quantiles]
         return [float('-inf')] + bin_borders + [float('inf')]
 
     @staticmethod
@@ -224,12 +226,15 @@ class SimpleTask(AbstractTask):
         columns = list(numeric_x_columns) + list(categorical_x_columns) + [y_column]
         y_is_categorical = config['y_is_categorical']
         binning_method = config['binning']
+        name = config['task_name']
+        description = config['task_description']
         return SimpleTask(train_source, test_source, additional_sources, columns, numeric_x_columns,
-                          categorical_x_columns, y_column, y_is_categorical, binning_method)
+                          categorical_x_columns, y_column, y_is_categorical, binning_method, name, description)
 
     def __init__(self, train_source: AbstractSource, test_source: AbstractSource,
                  additional_sources: tp.List[AbstractSource], columns: tp.List[str], numeric_x_columns: tp.Set[str],
-                 categorical_x_columns: tp.Set[str], y_column: str, y_is_categorical: bool, binning: dict):
+                 categorical_x_columns: tp.Set[str], y_column: str, y_is_categorical: bool, binning: dict,
+                 name: str = None, description: str = None):
         """
         params:
             train_source: An AbstractSource for acquiring initial train set.
@@ -242,7 +247,7 @@ class SimpleTask(AbstractTask):
             y_is_categorical: Whether y column is categorical or numeric.
             binning_method: A mapping from numeric x column names to SimpleBinningMethod.
         """
-        super().__init__(train_source, test_source, additional_sources, y_is_categorical)
+        super().__init__(train_source, test_source, additional_sources, y_is_categorical, name, description)
         # Store all the column names
         self.numeric_x_columns = [column for column in columns if column in numeric_x_columns]
         self.categorical_x_columns = [column for column in columns if column in categorical_x_columns]
@@ -260,6 +265,8 @@ class SimpleTask(AbstractTask):
             if x_binning['method'] == 'equi-width':
                 borders = self.get_equi_width_bin_borders(self.initial_train[x].tolist(), x_binning['num_bins'])
             elif x_binning['method'] == 'equi-count':
+                if x == 'total_bedrooms':
+                    print(self.initial_train[x].tolist())
                 borders = self.get_equi_count_bin_borders(self.initial_train[x].tolist(), x_binning['num_bins'])
             elif x_binning['method'] == 'predefined':
                 borders = x_binning['borders']
@@ -271,7 +278,7 @@ class SimpleTask(AbstractTask):
         for x in self.numeric_x_columns:
             bin_names = ['']  # 1-indexing
             for idx in range(len(self.bin_borders[x])):
-                bin_str = f'({str(self.bin_borders[x][idx])}, {str(self.bin_borders[x][idx] + 1)})'
+                bin_str = f'({format(self.bin_borders[x][idx], ".2f")}, {format(self.bin_borders[x][idx] + 1, ".2f")})'
                 bin_names.append(bin_str)
             self.bin_names.update({x: bin_names})
         # Compute and store categorical mapping scheme
@@ -302,6 +309,7 @@ class SimpleTask(AbstractTask):
         return dataset
 
     def binning_for_sliceline(self, dataset: pd.DataFrame) -> pd.DataFrame:
+        print(self.bin_borders)
         for col in self.numeric_x_columns:
             dataset[col] = pd.cut(dataset[col], bins=self.bin_borders[col], labels=False) + 1
         for col in self.categorical_x_columns:
@@ -327,19 +335,31 @@ class SimpleTask(AbstractTask):
         for slice_ in slices:
             sql_readable_slice = dict()
             for column_idx, bin_idx in enumerate(slice_):
+                if bin_idx is None or bin_idx == 0:  # This column does not matter for the slice
+                    continue
                 column_name = self.all_columns[column_idx]
                 if column_name in self.numeric_x_columns:
+                    column_conds = []
+                    print(self.bin_borders[column_name])
                     lo = self.bin_borders[column_name][bin_idx - 1]
                     hi = self.bin_borders[column_name][bin_idx]
-                    sql_readable_slice.update({column_name: [('>=', lo), ('<', hi)]})
+                    print(column_name, lo, hi)
+                    if lo != float('-inf'):
+                        column_conds.append(('>=', lo))
+                    if hi != float('inf'):
+                        column_conds.append(('<', hi))
+                    sql_readable_slice.update({column_name: column_conds})
             sql_readable_slices.append(sql_readable_slice)
+        print(sql_readable_slices)
         return sql_readable_slices
 
     def slice_ownership(self, data: pd.DataFrame, slices: npt.NDArray) -> npt.NDArray:
         data_binned = self.binning_for_sliceline(data).values
-        slices = np.where(slices is None, np.nan, slices)
-        data_binned = data_binned[:, np.newaxis, :]
-        slices = slices[np.newaxis, :, :]
-        result = np.all(data_binned == slices, axis=-1)
+        slices_mask = slices > 0
+        data_binned_expanded = data_binned[:, np.newaxis, :]
+        slices_expanded = slices[np.newaxis, :, :]
+        data_binned_masked = np.where(slices_mask, data_binned_expanded, 0)
+        slices_masked = np.where(slices_mask, slices_expanded, 0)
+        result = np.all(data_binned_masked == slices_masked , axis=-1)
         result = result.astype(int)
         return result

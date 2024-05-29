@@ -35,13 +35,19 @@ def get_loss_vector(
                    squares the error between gt and pred
     returns: A 1D loss vector, where loss is square loss if task is regression, and 1 or 0 if task is classification.
     """
-    preds = np.ndarray(model.predict(data_x))
+    print("Loss vector X shape:", data_x.shape)
+    preds = model.predict(data_x)
+    print("Predictions:")
+    print(preds)
     if loss_name == 'binary':
-        return np.not_equal(preds, data_y).astype(float)
+        losses = np.not_equal(preds, data_y).astype(float)
     elif loss_name == 'square':
-        return (data_y - preds) ** 2
+        losses = (data_y - preds) ** 2
     else:
         raise ValueError('Unsupported loss type.')
+    print("Losses:")
+    print(losses)
+    return losses
 
 
 def get_top_level_slice_losses(binned_x: pd.DataFrame, losses: npt.NDArray) -> tp.List[float]:

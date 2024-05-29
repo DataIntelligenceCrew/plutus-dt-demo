@@ -3,6 +3,7 @@ from abc import abstractmethod
 import pandas as pd
 import typing as tp
 import psycopg2
+from pandas._typing import npt
 
 """
 An abstract class for data sources, which are used to acquire train, test, and additional data. 
@@ -125,22 +126,6 @@ class SimpleDBSource(AbstractSource):
     def total_size(self) -> int:
         return self.initial_size
 
-    def slice_count(self, slice_defn: dict) -> tp.Union[int, None]:
-        count_cur = self.conn.cursor()
-        # Construct count query from slice definition
-        values = []
-        query = f"SELECT COUNT(*) FROM {self.table} WHERE "
-        for column, conditions in slice_defn.items():
-            for op, val in conditions:
-                query += f"{column} {op} %s AND "
-                values.append(val)
-        query += " TRUE;"
-        # Execute query & parse result
-        count_cur.execute(query, tuple(values))
-        ret = count_cur.fetchone()[0]
-        count_cur.close()
-        return ret
-
     def slices_count(self, slice_defs: tp.List[dict]) -> tp.List[int]:
         count_cur = self.conn.cursor()
         values = []
@@ -150,12 +135,14 @@ class SimpleDBSource(AbstractSource):
             for column, conditions in slice_.items():
                 for op, val in conditions:
                     condition += f"{column} {op} %s AND "
-                    values.append(val)
+                    values.append(str(val))
             condition += "TRUE"
-            query_parts.append(f"COUNT(CASE WHEN {condition} THEN 1 END) AS {idx}")
+            query_parts.append(f"COUNT(CASE WHEN {condition} THEN 1 END) AS c{idx}")
         query = f"SELECT {', '.join(query_parts)} FROM {self.table};"
+        print(query, values)
         count_cur.execute(query, tuple(values))
-        ret = count_cur.fetchone()[0]
+        ret = count_cur.fetchone()
+        print("Slices count query result:", ret)
         count_cur.close()
         return list(ret)
 

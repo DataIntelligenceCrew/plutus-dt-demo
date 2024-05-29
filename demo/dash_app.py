@@ -34,9 +34,6 @@ ALGO_TO_NAME = {
 }
 global_data = None
 
-# Main app layout
-app.layout = get_layout()
-
 
 # Callbacks
 
@@ -48,10 +45,7 @@ app.layout = get_layout()
     prevent_initial_call=True
 )
 def dt_combine(_, algo, task_key):
-    current_stage = global_data[task_key].stage
     if task_key is None:  # No task is currently active
-        raise PreventUpdate
-    elif current_stage != Stage.MODEL:  # Current state is wrong
         raise PreventUpdate
     else:
         # Retrieve train set, aug set
@@ -74,8 +68,15 @@ def dt_combine(_, algo, task_key):
 def visualize_dt_sources(_, task_key):
     # Obtain slices statistics table
     slices = global_data[task_key].slices
-    gt_stats = [np.ndarray(source.slices_count(slices)) / source.total_size()
-                for source in global_data[task_key].task.additional_sources]
+    sql_readable_slices = global_data[task_key].task.recode_slice_to_sql_readable(slices)
+    gt_stats = [source_.slices_count(sql_readable_slices) for source_ in global_data[task_key].task.additional_sources]
+    source_sizes = [source_.total_size() for source_ in global_data[task_key].task.additional_sources]
+    gt_stats = np.array(gt_stats).astype(np.float64)
+    source_sizes = np.array(source_sizes).astype(np.float64)
+    print("gt_stats:", gt_stats)
+    print("source sizes:", source_sizes)
+    gt_stats /= source_sizes[:, np.newaxis]
+    print("normalized gt stats:", gt_stats)
     # Update gt stats
     global_data[task_key].sources_stats = gt_stats
     # Create the graph
@@ -91,7 +92,7 @@ def visualize_dt_sources(_, task_key):
     fig.update_layout(
         barmode='group',
         xaxis_title='Source',
-        yaxis_title='Chance of sampling slice',
+        yaxis_title='Percentage chance of sampling slice',
         legend_title='Slices',
         coloraxis=dict(colorscale='Viridis')
     )
@@ -108,27 +109,29 @@ def visualize_dt_sources(_, task_key):
 )
 def run_dt(_, task_key, sliceline_data, algos):
     task_data = global_data[task_key]
-    if task_key is None or task_data.stage != Stage.DT:
+    if task_key is None:
         raise PreventUpdate
     # Run DT using the gt stats
-    query_counts = np.ndarray([row['counts'] for row in sliceline_data])
+    query_counts = np.array([row['counts'] for row in sliceline_data])
+    print("query counts:", query_counts)
     explore_scale = len(task_data.train) / sum(task_data.sliceline_stats['sizes'])
     # Run DT & update
-    dt_result = dt.pipeline.pipeline_dt_py(task_data.task, task_data.slices, query_counts, algos, explore_scale)
+    dt_result = pipeline_dt_py(task_data.task, task_data.slices, query_counts, algos, explore_scale)
+    print(dt_result)
     task_data.dt_result = dt_result
     # Sources subfig
     a = len(algos)
     sources_fig = make_subplots(rows=1, cols=a,
                                 specs=[[{"type": "pie"} for _ in range(a)]],
                                 subplot_titles=[
-                                    ALGO_TO_NAME[algo] + '<br>(' + str(int(dt_result[algo][1]['cost'])) + ')' for algo
+                                    ALGO_TO_NAME[algo] + '<br>(' + str(int(dt_result[algo]['cost'])) + ')' for algo
                                     in algos]
                                 )
     n = len(task_data.task.additional_sources)
     for idx, algo in enumerate(algos):
         pie_chart = go.Pie(
             labels=["Source " + str(i) for i in range(n)],
-            values=dt_result[algo][1]['sources'],
+            values=dt_result[algo]['sources'],
             domain={'x': [idx * 1.0 / a, (idx + 1) * 1.0 / a]},
             scalegroup='one',
             textinfo='none'
@@ -152,19 +155,26 @@ def run_sliceline(n_clicks, alpha, k, max_l, min_sup, task_key):
     task_data = global_data[task_key]
     train_sliceline = task_data.test
     train_losses = task_data.test_losses
-    sliceline_result = dt.pipeline_sliceline_dml(task_data.task, train_sliceline, train_losses, alpha, max_l, min_sup,
-                                                 k)
+    sliceline_result = pipeline_sliceline_dml(task_data.task, train_sliceline, train_losses, alpha, max_l, min_sup, k)
     # Update slices
     task_data.slices = sliceline_result['slices']
+    print("Slices:")
+    print(task_data.slices)
     task_data.sliceline_stats = sliceline_result
+    print("Sliceline result:")
+    print(sliceline_result)
     # Convert slices to DF
     slices_human_readable = task_data.task.recode_slice_to_human_readable(task_data.slices)
-    slices_df = pd.DataFrame(slices_human_readable, columns=task_data.task.all_column_names())
+    print("Human readable slices:")
+    print(slices_human_readable)
+    print("Columns:")
+    print(task_data.task.all_column_names())
+    slices_df = pd.DataFrame(slices_human_readable, columns=task_data.task.x_column_names())
     # Add slice-related info to slices
     slices_df.insert(0, "sizes", task_data.sliceline_stats["sizes"])
     slices_df.insert(0, "errors", task_data.sliceline_stats["errors"])
     slices_df.insert(0, "scores", task_data.sliceline_stats["scores"])
-    slices_df.insert(0, "slice_id", np.ndarray(range(len(slices_df))))
+    slices_df.insert(0, "slice_id", np.arange(slices_df.shape[0]))
     # Construct slices table
     slices_df.dropna(axis=1, how='all', inplace=True)
     table = dash_table.DataTable(
@@ -219,19 +229,18 @@ def run_model(n_clicks, task_key):
     # If current stage is train, then reload the most recent running result
     # Load datasets
     # Run pipeline function
-    train_losses, test_losses, train_stats \
-        = dt.pipeline.pipeline_train_py(task_data.task, task_data.train, task_data.test)
-    task_data.train_losses = train_losses
-    task_data.test_losses = test_losses
+    train_result = pipeline_train_py(task_data.task, task_data.train, task_data.test)
+    task_data.train_losses = train_result['train_losses']
+    task_data.test_losses = train_result['test_losses']
     # Append new aggregate accuracies/losses
     itr = task_data.iter
-    task_data.train_agg_losses[itr] = train_stats['agg_train_loss']
-    task_data.test_agg_losses[itr] = train_stats['agg_test_loss']
+    task_data.train_agg_losses[itr] = train_result['agg_train_loss']
+    task_data.test_agg_losses[itr] = train_result['agg_test_loss']
     # Update aggregate accuracy graph
     agg_graph = get_agg_accuracy_graph(task_key)
     # Update slice losses
-    task_data.slice_train_losses[itr] = train_stats['slice_train_losses']
-    task_data.slice_test_losses[itr] = train_stats['slice_test_losses']
+    task_data.slice_train_losses[itr] = train_result['slice_train_losses']
+    task_data.slice_test_losses[itr] = train_result['slice_test_losses']
     # Update slice losses graph
     slice_graph = get_slice_accuracy_graph(task_key)
     task_data.iter += 1
@@ -327,6 +336,9 @@ def get_agg_accuracy_graph(task_key: str):
 if __name__ == '__main__':
     # Preloading datasets
     global_data = get_dashdata_from_configs('configs-active')
+
+    # Main app layout
+    app.layout = get_layout(global_data)
 
     # Start Dash app
     app.run_server(host='0.0.0.0', port=8050, debug=True)

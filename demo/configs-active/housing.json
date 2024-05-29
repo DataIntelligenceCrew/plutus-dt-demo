@@ -1,5 +1,7 @@
 {
-  "conn_str": "dbname=dtdemo user=jchang38",
+  "task_name": "Boston housing price regression",
+  "task_description": "U.S. Census data about housing in Boston, MA, to regress the housing market price.",
+  "conn_str": "dbname=dtdemo user=jwc host=/var/run/postgresql port=5432",
   "train_table": "housing",
   "test_table": "housing0",
   "ext_tables": ["housing1", "housing2", "housing3", "housing4"],
