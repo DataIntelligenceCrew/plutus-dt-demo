@@ -157,10 +157,10 @@ def pipeline_sliceline_dml(
     """
 
     time_start = time.time()
-    binned = task.binning_for_sliceline(train_sl) + 1
-    binned_x = binned.drop(task.y_column_name(), axis=1)
+    train_wo_y = (train_sl.copy()).drop(task.y_column_name(), axis=1)
+    binned = task.binning_for_sliceline(train_wo_y) + 1
 
-    slices, slices_stats = subroutines.get_slices_dml(binned_x, train_losses, alpha, k, max_l, min_sup)
+    slices, slices_stats = subroutines.get_slices_dml(binned, train_losses, alpha, k, max_l, min_sup)
 
     time_end = time.time()
     ret = {

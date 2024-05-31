@@ -169,7 +169,7 @@ def run_sliceline(n_clicks, alpha, k, max_l, min_sup, task_key):
     print(slices_human_readable)
     print("Columns:")
     print(task_data.task.all_column_names())
-    slices_df = pd.DataFrame(slices_human_readable, columns=task_data.task.x_column_names())
+    slices_df = pd.DataFrame(slices_human_readable, columns=task_data.task.x_column_names()) if len(slices_human_readable) > 0 else pd.DataFrame(columns=task_data.task.x_column_names())
     # Add slice-related info to slices
     slices_df.insert(0, "sizes", task_data.sliceline_stats["sizes"])
     slices_df.insert(0, "errors", task_data.sliceline_stats["errors"])

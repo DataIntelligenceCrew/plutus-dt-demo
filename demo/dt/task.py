@@ -276,9 +276,9 @@ class SimpleTask(AbstractTask):
         # Pre-compute the string representation of each bin
         self.bin_names = dict()
         for x in self.numeric_x_columns:
-            bin_names = ['']  # 1-indexing
-            for idx in range(len(self.bin_borders[x])):
-                bin_str = f'({format(self.bin_borders[x][idx], ".2f")}, {format(self.bin_borders[x][idx] + 1, ".2f")})'
+            bin_names = []
+            for idx in range(len(self.bin_borders[x]) - 1):
+                bin_str = f'({format(self.bin_borders[x][idx], ".2f")}, {format(self.bin_borders[x][idx + 1], ".2f")})'
                 bin_names.append(bin_str)
             self.bin_names.update({x: bin_names})
         # Compute and store categorical mapping scheme
@@ -311,7 +311,7 @@ class SimpleTask(AbstractTask):
     def binning_for_sliceline(self, dataset: pd.DataFrame) -> pd.DataFrame:
         print(self.bin_borders)
         for col in self.numeric_x_columns:
-            dataset[col] = pd.cut(dataset[col], bins=self.bin_borders[col], labels=False) + 1
+            dataset[col] = pd.cut(dataset[col], bins=self.bin_borders[col], labels=False)
         for col in self.categorical_x_columns:
             dataset[col] = dataset[col].map(self.categorical_mappings[col]['label_to_idx'])
         return dataset
@@ -323,9 +323,9 @@ class SimpleTask(AbstractTask):
             for column_idx, bin_idx in enumerate(slice_):
                 column_name = self.all_columns[column_idx]
                 if column_name in self.numeric_x_columns:
-                    human_readable_slice.append(self.bin_names[column_name][bin_idx])
+                    human_readable_slice.append(self.bin_names[column_name][bin_idx] if bin_idx is not None else None)
                 else:
-                    label = self.categorical_mappings[column_name]['idx_to_label'][bin_idx]
+                    label = self.categorical_mappings[column_name]['idx_to_label'][bin_idx] if bin_idx is not None else None
                     human_readable_slice.append(label)
             human_readable_slices.append(human_readable_slice)
         return np.array(human_readable_slices)
@@ -355,11 +355,11 @@ class SimpleTask(AbstractTask):
 
     def slice_ownership(self, data: pd.DataFrame, slices: npt.NDArray) -> npt.NDArray:
         data_binned = self.binning_for_sliceline(data).values
-        slices_mask = slices > 0
+        slices_mask = slices != None
         data_binned_expanded = data_binned[:, np.newaxis, :]
         slices_expanded = slices[np.newaxis, :, :]
         data_binned_masked = np.where(slices_mask, data_binned_expanded, 0)
         slices_masked = np.where(slices_mask, slices_expanded, 0)
-        result = np.all(data_binned_masked == slices_masked , axis=-1)
+        result = np.all(data_binned_masked == slices_masked, axis=-1)
         result = result.astype(int)
         return result

@@ -82,7 +82,7 @@ def get_slices_dml(binned_x, losses, alpha, k, max_l, min_sup) -> tp.Tuple[npt.N
         [slices, slices_stats, debug] = slicefinder(sds_X, sds_e, alpha=alpha, k=k, maxL=max_l, minSup=min_sup,
                                                     verbose=True).compute()
 
-    slices = slices
+    slices = slices - 1
     slices = pd.DataFrame(slices, dtype=int)
     slices = slices.replace({-1: None})
 
