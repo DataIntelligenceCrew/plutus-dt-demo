@@ -6,13 +6,17 @@ import numpy as np
 from psycopg2 import sql
 from psycopg2.extensions import register_adapter, AsIs
 
+
 # Register numpy.int64 type with psycopg2
-def addapt_numpy_int64(numpy_int64):
+def adapt_numpy_int64(numpy_int64):
     return AsIs(numpy_int64)
-register_adapter(np.int64, addapt_numpy_int64)
+
+
+register_adapter(np.int64, adapt_numpy_int64)
 
 # Database connection string
-DB_CONNECTION_STRING = "dbname=dtdemo user=jchang38"
+DB_CONNECTION_STRING = "dbname=dtdemo user=jwc host=/var/run/postgresql port=5432"
+
 
 def main(directory):
     # Create a database connection
@@ -36,7 +40,8 @@ def main(directory):
             column_names = df.columns
             create_table_query = sql.SQL("CREATE TABLE {} ({});").format(
                 sql.Identifier(table_name),
-                sql.SQL(',').join(sql.SQL("{} float").format(sql.Identifier(column_name)) for column_name in column_names)
+                sql.SQL(',').join(
+                    sql.SQL("{} float").format(sql.Identifier(column_name)) for column_name in column_names)
             )
             cur.execute(create_table_query)
             conn.commit()
