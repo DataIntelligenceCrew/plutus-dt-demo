@@ -1,0 +1,26 @@
+{
+  "task_name": "Adult",
+  "task_description": "Predict whether income exceeds $50K/yr based on census data. Also known as \"Census Income\" dataset.",
+  "conn_str": "dbname=adult user=<YOUR_USER> host=localhost port=5432",
+  "train_table": "adult_train",
+  "test_table": "adult_test",
+  "ext_tables": ["adult_ext1", "adult_ext2", "adult_ext3", "adult_ext4", "adult_ext5", "adult_ext6", "adult_ext7"],
+  "numeric_x": ["age", "fnlwgt", "hours_per_week"],
+  "categorical_x": ["sex", "workclass", "education", "marital_status", "occupation", "relationship", "race", "native_country"],
+  "y": "income",
+  "y_is_categorical": true,
+  "binning": {
+    "age": {
+      "method": "equi-width",
+      "num_bins": 10
+    },
+    "fnlwgt": {
+      "method": "equi-width",
+      "num_bins": 10
+    },
+    "hours_per_week": {
+      "method": "equi-width",
+      "num_bins": 10
+    }
+  }
+}
