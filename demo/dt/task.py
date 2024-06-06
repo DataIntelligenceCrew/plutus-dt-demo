@@ -152,8 +152,8 @@ class SimpleTask(AbstractTask):
         starting from 1 up to n. Then, returns a mapping from integer to value, and value to integer.
         """
         list_form = list(possible_values)
-        int_to_value_list = {(idx + 1): value for idx, value in enumerate(list_form)}
-        value_to_int_dict = {value: idx + 1 for idx, value in enumerate(list_form)}
+        int_to_value_list = {idx: value for idx, value in enumerate(list_form)}
+        value_to_int_dict = {value: idx for idx, value in enumerate(list_form)}
         return int_to_value_list, value_to_int_dict
 
     @staticmethod
@@ -223,12 +223,11 @@ class SimpleTask(AbstractTask):
         numeric_x_columns = set(config['numeric_x'])
         categorical_x_columns = set(config['categorical_x'])
         y_column = config['y']
-        columns = list(numeric_x_columns) + list(categorical_x_columns) + [y_column]
         y_is_categorical = config['y_is_categorical']
         binning_method = config['binning']
         name = config['task_name']
         description = config['task_description']
-        return SimpleTask(train_source, test_source, additional_sources, columns, numeric_x_columns,
+        return SimpleTask(train_source, test_source, additional_sources, all_columns, numeric_x_columns,
                           categorical_x_columns, y_column, y_is_categorical, binning_method, name, description)
 
     def __init__(self, train_source: AbstractSource, test_source: AbstractSource,
@@ -304,6 +303,8 @@ class SimpleTask(AbstractTask):
     def recode_for_model(self, dataset: pd.DataFrame) -> pd.DataFrame:
         # This should dummy-encode, normalize, turn values numeric, etc., as necessary
         # Python XGBoost has support for categorical features OOTB, so we simply mark those columns as category
+        for x in self.numeric_x_columns:
+            dataset[x] = dataset[x].astype('float')
         for x in self.categorical_x_columns:
             dataset[x] = dataset[x].astype('category')
         if self.y_is_categorical:
@@ -316,6 +317,7 @@ class SimpleTask(AbstractTask):
             dataset[col] = pd.cut(dataset[col], bins=self.bin_borders[col], labels=False)
         for col in self.categorical_x_columns:
             dataset[col] = dataset[col].map(self.categorical_mappings[col]['label_to_idx'])
+            dataset[col] = dataset[col].astype('int64')
         return dataset
 
     def recode_slice_to_human_readable(self, slices: npt.NDArray) -> npt.NDArray:
@@ -337,26 +339,31 @@ class SimpleTask(AbstractTask):
         for slice_ in slices:
             sql_readable_slice = dict()
             for column_idx, bin_idx in enumerate(slice_):
-                if bin_idx is None or bin_idx == 0:  # This column does not matter for the slice
+                if bin_idx is None:  # This column does not matter for the slice
                     continue
                 column_name = self.all_columns[column_idx]
                 if column_name in self.numeric_x_columns:
                     column_conds = []
                     print(self.bin_borders[column_name])
-                    lo = self.bin_borders[column_name][bin_idx - 1]
-                    hi = self.bin_borders[column_name][bin_idx]
+                    lo = self.bin_borders[column_name][bin_idx]
+                    hi = self.bin_borders[column_name][bin_idx + 1]
                     print(column_name, lo, hi)
                     if lo != float('-inf'):
                         column_conds.append(('>=', lo))
-                    if hi != float('inf'):
+                    elif hi != float('inf'):
                         column_conds.append(('<', hi))
+                    else:
+                        column_conds.append('<', hi)
+                        column_conds.append('>=', lo)
                     sql_readable_slice.update({column_name: column_conds})
+                else:
+                    sql_readable_slice.update({column_name: [('=', self.categorical_mappings[column_name]['idx_to_label'][bin_idx])]})
             sql_readable_slices.append(sql_readable_slice)
         print(sql_readable_slices)
         return sql_readable_slices
 
     def slice_ownership(self, data: pd.DataFrame, slices: npt.NDArray) -> npt.NDArray:
-        data_binned = self.binning_for_sliceline(data).values
+        data_binned = self.binning_for_sliceline(data.copy()).values
         slices_mask = slices != None
         data_binned_expanded = data_binned[:, np.newaxis, :]
         slices_expanded = slices[np.newaxis, :, :]

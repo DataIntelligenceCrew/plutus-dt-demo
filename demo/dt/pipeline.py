@@ -29,12 +29,14 @@ def pipeline_train_py(task: AbstractTask, train: pd.DataFrame, test: pd.DataFram
     """
     time_start = time.time()
     # Convert dataset(s) to train format
-    train_x, train_y = split_df_xy(train, task.y_column_name())
+    train_recoded = task.recode_for_model(train.copy())
+    train_x, train_y = split_df_xy(train_recoded, task.y_column_name())
     print("Train X:")
     print(train_x)
     print("Train y:")
     print(train_y)
-    test_x, test_y = split_df_xy(test, task.y_column_name())
+    test_recoded = task.recode_for_model(test.copy())
+    test_x, test_y = split_df_xy(test_recoded, task.y_column_name())
     print("Test X:")
     print(test_x)
     print("Test y:")
