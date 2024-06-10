@@ -254,6 +254,15 @@ class SimpleTask(AbstractTask):
                           column in numeric_x_columns or column in categorical_x_columns]
         self.y_column = y_column
         self.all_columns = columns
+        # Fill problematic values
+        self.initial_train[self.categorical_x_columns] = self.initial_train[self.categorical_x_columns].fillna('unknown')
+        self.test[self.categorical_x_columns] = self.test[self.categorical_x_columns].fillna('unknown')
+        self.initial_train[self.numeric_x_columns] = self.initial_train[self.numeric_x_columns].fillna(0)
+        self.test[self.numeric_x_columns] = self.test[self.numeric_x_columns].fillna(0)
+        if self.y_is_categorical:
+            self.initial_train[self.y_column] = self.initial_train[self.y_column].fillna('unknown')
+        else:
+            self.initial_train[self.y_column] = self.initial_train[self.y_column].fillna(0)
         # Store other parameters
         self.y_is_categorical = y_is_categorical
         # Compute numeric bin borders, which will stay fixed
@@ -305,18 +314,24 @@ class SimpleTask(AbstractTask):
         # Python XGBoost has support for categorical features OOTB, so we simply mark those columns as category
         for x in self.numeric_x_columns:
             dataset[x] = dataset[x].astype('float')
+        dataset[self.numeric_x_columns] = dataset[self.numeric_x_columns].fillna(0)
+        dataset[self.categorical_x_columns] = dataset[self.categorical_x_columns].fillna('unknown')
         for x in self.categorical_x_columns:
             dataset[x] = dataset[x].astype('category')
         if self.y_is_categorical:
+            dataset[self.y_column] = dataset[self.y_column].fillna('unknown')
             dataset[self.y_column] = dataset[self.y_column].astype('category')
+        else:
+            dataset[self.y_column] = dataset[self.y_column].fillna(0)
         return dataset
 
     def binning_for_sliceline(self, dataset: pd.DataFrame) -> pd.DataFrame:
         print(self.bin_borders)
         for col in self.numeric_x_columns:
-            dataset[col] = pd.cut(dataset[col], bins=self.bin_borders[col], labels=False)
+            dataset[col] = pd.cut(dataset[col], bins=self.bin_borders[col], labels=False, duplicates='drop')
         for col in self.categorical_x_columns:
             dataset[col] = dataset[col].map(self.categorical_mappings[col]['label_to_idx'])
+            dataset[col] = dataset[col].fillna(0)
             dataset[col] = dataset[col].astype('int64')
         return dataset
 

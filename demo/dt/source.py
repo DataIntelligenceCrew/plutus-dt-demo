@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from random import random
 
 import pandas as pd
 import typing as tp
@@ -89,10 +90,13 @@ class SimpleDBSource(AbstractSource):
         self.table: str = table
         self.columns: tp.List[str] = columns
         # Acquire connection & cursor to table, then execute select query
+        self.conn_str = conn_str
         self.conn = psycopg2.connect(conn_str)
-        self.select_cur = self.conn.cursor()
+        self.select_cur = self.conn.cursor(name='select_cur' + table)
         query = f"SELECT {','.join(self.columns)} FROM {self.table};"
         self.select_cur.execute(query)
+        self.select_cur.fetchone()
+        print(self.select_cur, query)
         self.return_column_names = [desc[0] for desc in self.select_cur.description]
         # Count the number of tuples in table
         self.initial_size: int = self._total_size()
@@ -104,21 +108,34 @@ class SimpleDBSource(AbstractSource):
         self.conn.commit()
         self.conn.close()
 
+    def reset(self):
+        self.close()
+        # Acquire connection & cursor to table, then execute select query
+        self.conn = psycopg2.connect(self.conn_str)
+        self.select_cur = self.conn.cursor(name='select_cur' + self.table)
+        query = f"SELECT {','.join(self.columns)} FROM {self.table};"
+        self.select_cur.execute(query)
+        self.select_cur.fetchone()
+        print(self.select_cur, query)
+        self.return_column_names = [desc[0] for desc in self.select_cur.description]
+        # Count the number of tuples in table
+        self.initial_size: int = self._total_size()
+        self.num_queried: int = 0  # Number of fresh tuples queried so far
+
     def get_next_batch(self, batch_size: tp.Union[int, None]) -> tp.Tuple[tp.Union[pd.DataFrame, None], int]:
         if not self.has_next():
             return None, 0
-        else:
-            # Fetch batch of rows from table then convert to DataFrame
-            if batch_size is not None:  # Some integer batch size specified
-                rows = self.select_cur.fetchmany(batch_size)
-            else:  # No batch size limit
-                rows = self.select_cur.fetchall()
-            df = pd.DataFrame(rows, columns=self.return_column_names)
-            # Close cursor & connection if no fresh tuples remain in table
-            self.num_queried += len(rows)
-            if not self.has_next():
-                self.select_cur.close()
-            return df, len(df)
+        # Fetch batch of rows from table then convert to DataFrame
+        if batch_size is not None:  # Some integer batch size specified
+            rows = self.select_cur.fetchmany(batch_size)
+        else:  # No batch size limit
+            rows = self.select_cur.fetchall()
+        df = pd.DataFrame(rows, columns=self.return_column_names)
+        # Close cursor & connection if no fresh tuples remain in table
+        self.num_queried += len(rows)
+        if not self.has_next():
+            self.select_cur.close()
+        return df, len(df)
 
     def has_next(self) -> bool:
         return self.initial_size > self.num_queried
@@ -135,6 +152,9 @@ class SimpleDBSource(AbstractSource):
             for column, conditions in slice_.items():
                 for op, val in conditions:
                     condition += f"{column} {op} %s AND "
+                    if isinstance(val, float):
+                        if val.is_integer():
+                            val = int(val)
                     values.append(str(val))
             condition += "TRUE"
             query_parts.append(f"COUNT(CASE WHEN {condition} THEN 1 END) AS c{idx}")

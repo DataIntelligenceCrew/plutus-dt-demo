@@ -1,7 +1,7 @@
 {
   "task_name": "Adult",
   "task_description": "Predict whether income exceeds $50K/yr based on census data. Also known as \"Census Income\" dataset.",
-  "conn_str": "dbname=adult user=<YOUR_USER> host=localhost port=5432",
+  "conn_str": "dbname=dtdemo user=jwc password=1234 host=localhost port=5432",
   "train_table": "adult_train",
   "test_table": "adult_test",
   "ext_tables": ["adult_ext1", "adult_ext2", "adult_ext3", "adult_ext4", "adult_ext5", "adult_ext6", "adult_ext7"],

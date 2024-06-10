@@ -1,4 +1,4 @@
-import random
+import random as rnd
 
 import math
 
@@ -41,6 +41,8 @@ class DT:
                 in raw format.
             2. DT stats dictionary. 
         """
+        for source in self.sources:
+            source.reset()
         additional_data = pd.DataFrame(columns=self.task.all_column_names())
         remaining_query = np.copy(query_counts)
         total_cost = 0
@@ -78,7 +80,10 @@ class DT:
             total_cost += self.costs[chosen_source] * len(query_result)
             # Split query result to x, y
             result_x, _ = utils.split_df_xy(query_result, self.task.y_column_name())
+            if len(result_x) == 0:
+                self.sources[chosen_source].reset()
             # slice_ownership[i][j] denotes whether ith tuple belongs to slice j
+            print(result_x)
             slice_ownership = self.task.slice_ownership(result_x, self.slices)
             print("slice_ownership\n", slice_ownership)
             # Count the frequency of each subgroup in query result
@@ -99,8 +104,11 @@ class DT:
 
     def choose_ds(self, algorithm: str, itr: int, stat_tracker, remaining_query: npt.NDArray) -> int:
         if algorithm == "random":
-            ds = random.choice(range(self.n))
-            return ds
+            while True:
+                ds = rnd.choice(range(self.n))
+                if not self.sources[ds].has_next():
+                    continue
+                return ds
         elif algorithm == "exploreexploit":
             if itr < self.explore_iters:
                 priority_source = itr % self.n
@@ -112,8 +120,11 @@ class DT:
                 min_c_over_p = np.amin(c_over_p, axis=0)
                 group_scores = remaining_query * min_c_over_p
                 priority_group = np.argmax(group_scores)
-                priority_source = np.argmin(c_over_p[:, priority_group], axis=0)
-                return priority_source
+                source_scores = c_over_p[:, priority_group]
+                sorted_sources = np.argsort(source_scores)
+                for source in sorted_sources:
+                    if self.sources[source].has_next():
+                        return source
         elif algorithm == "ratiocoll":
             P = np.maximum(stat_tracker / max(1, np.sum(stat_tracker)),
                            np.full(np.shape(stat_tracker), EPSILON_PROB))
@@ -121,5 +132,8 @@ class DT:
             min_c_over_p = np.amin(c_over_p, axis=0)
             group_scores = remaining_query * min_c_over_p
             priority_group = np.argmax(group_scores)
-            priority_source = np.argmin(c_over_p[:, priority_group], axis=0)
-            return priority_source
+            source_scores = c_over_p[:, priority_group]
+            sorted_sources = np.argsort(source_scores)
+            for source in sorted_sources:
+                if self.sources[source].has_next():
+                    return source

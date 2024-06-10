@@ -1,0 +1,42 @@
+{
+  "task_name": "Flights",
+  "task_description": "Predict flight delay in minutes from U.S. transportation statistics.",
+  "conn_str": "dbname=dtdemo user=jwc password=1234 host=localhost port=5432",
+  "train_table": "flights_train4",
+  "test_table": "flights_test4",
+  "ext_tables": ["flights_ext0", "flights_ext1", "flights_ext2", "flights_ext3", "flights_ext4"],
+  "numeric_x": ["year", "month", "day", "weekday", "departure_scheduled", "arrival_scheduled", "distance"],
+  "categorical_x": ["carrier_op", "carrier_mkt", "origin_state", "dest_state"],
+  "y": "arrival_delay",
+  "y_is_categorical": false,
+  "binning": {
+    "year": {
+      "method": "equi-count",
+      "num_bins": 5
+    },
+    "month": {
+      "method": "equi-count",
+      "num_bins": 12
+    },
+    "day": {
+      "method": "equi-count",
+      "num_bins": 31
+    },
+    "weekday": {
+      "method": "equi-count",
+      "num_bins": 7
+    },
+    "departure_scheduled": {
+      "method": "equi-count",
+      "num_bins": 24
+    },
+    "arrival_scheduled": {
+      "method": "equi-count",
+      "num_bins": 24
+    },
+    "distance": {
+      "method": "equi-count",
+      "num_bins": 10
+    }
+  }
+}

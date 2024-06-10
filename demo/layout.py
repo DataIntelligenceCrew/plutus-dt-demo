@@ -328,7 +328,7 @@ def get_vis_sliceline_params() -> html.Div:
                     dcc.Slider(
                         id='vis-sliceline-params-l-slider',
                         min=1,
-                        max=5,
+                        max=2,
                         step=1,
                         value=1
                     )

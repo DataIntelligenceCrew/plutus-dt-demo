@@ -28,9 +28,9 @@ def pipeline_train_model(
               2. 'xgboost-classify'
     """
     if model_name == 'xgboost-regress':
-        model = xgb.XGBRegressor(device="cuda")
+        model = xgb.XGBRegressor(device="cuda", enable_categorical=True)
     elif model_name == 'xgboost-classify':
-        model = xgb.XGBClassifier(enable_categorical=True, device="cuda")
+        model = xgb.XGBClassifier(enable_categorical=True)
     else:
         raise ValueError("Unsupported model name.")
     model.fit(train_x, train_y)
